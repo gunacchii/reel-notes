@@ -518,6 +518,7 @@ function App() {
   const [currentVideoId, setCurrentVideoId] = useState(null);
   const [query, setQuery] = useState("");
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   // check for an existing session (or one just returned from a Google redirect)
   useEffect(() => {
@@ -553,84 +554,91 @@ function App() {
   }, []);
 
   const loadAllData = useCallback(async () => {
-    const [foldersRows, videosRows, notesRows, repliesRows, profilesRows] = await Promise.all([
-      db.select("folders"),
-      db.select("videos"),
-      db.select("notes"),
-      db.select("note_replies"),
-      db.select("profiles"),
-    ]);
+    try {
+      const [foldersRows, videosRows, notesRows, repliesRows, profilesRows] = await Promise.all([
+        db.select("folders"),
+        db.select("videos"),
+        db.select("notes"),
+        db.select("note_replies"),
+        db.select("profiles"),
+      ]);
 
-    const profileMap = {};
-    (profilesRows || []).forEach((p) => { profileMap[p.id] = p.display_name || "Someone"; });
+      const profileMap = {};
+      (profilesRows || []).forEach((p) => { profileMap[p.id] = p.display_name || "Someone"; });
 
-    const repliesByNote = {};
-    (repliesRows || []).forEach((r) => {
-      (repliesByNote[r.note_id] ||= []).push({
-        id: r.id, text: r.text, authorName: profileMap[r.created_by] || "Someone",
+      const repliesByNote = {};
+      (repliesRows || []).forEach((r) => {
+        (repliesByNote[r.note_id] ||= []).push({
+          id: r.id, text: r.text, authorName: profileMap[r.created_by] || "Someone",
+        });
       });
-    });
 
-    const drawingPaths = (notesRows || []).map((n) => n.drawing_path).filter(Boolean);
-    const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await getCachedSignedUrl("drawings", p)]));
-    const drawingUrlMap = Object.fromEntries(drawingUrlEntries);
+      const drawingPaths = (notesRows || []).map((n) => n.drawing_path).filter(Boolean);
+      const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await getCachedSignedUrl("drawings", p)]));
+      const drawingUrlMap = Object.fromEntries(drawingUrlEntries);
 
-    const notesByVideo = {};
-    (notesRows || []).forEach((n) => {
-      const note = {
-        id: n.id,
-        time: Number(n.time_seconds),
-        endTime: n.end_time_seconds != null ? Number(n.end_time_seconds) : null,
-        text: n.text || "",
-        drawing: n.drawing_path ? drawingUrlMap[n.drawing_path] : null,
-        replies: repliesByNote[n.id] || [],
-        createdAt: new Date(n.created_at).getTime(),
-        authorName: profileMap[n.created_by] || "Someone",
-      };
-      (notesByVideo[n.video_id] ||= []).push(note);
-    });
-    Object.values(notesByVideo).forEach((list) => list.sort((a, b) => a.time - b.time));
-
-    const readyVideos = (videosRows || []).filter((v) => v.status === "ready" && v.storage_path);
-    const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await getCachedSignedUrl("videos", v.storage_path)]));
-    const videoUrlMap = Object.fromEntries(videoUrlEntries);
-
-    const nextFolders = { ...seedFolders() };
-    (foldersRows || []).forEach((f) => {
-      nextFolders[f.id] = { id: f.id, name: f.name, parentId: f.parent_id || ROOT_ID, archived: f.archived, order: f.order_index };
-    });
-
-    const nextVideos = {};
-    (videosRows || []).forEach((v) => {
-      nextVideos[v.id] = {
-        id: v.id,
-        folderId: v.folder_id || ROOT_ID,
-        name: v.name,
-        url: videoUrlMap[v.id] || null,
-        notes: notesByVideo[v.id] || [],
-        locked: v.locked, password: v.password || "",
-        status: v.status,
-        progress: v.status === "ready" ? 100 : 0,
-        archived: v.archived,
-        updatedAt: new Date(v.updated_at).getTime(),
-        order: v.order_index,
-        reviewStatus: v.review_status,
-      };
-    });
-
-    setFolders(nextFolders);
-    setVideos((prev) => {
-      // preserve the local, purely cosmetic upload-progress animation for videos
-      // still processing — that number only ever lives in the browser, not the DB
-      const merged = nextVideos;
-      Object.keys(merged).forEach((id) => {
-        if (merged[id].status === "processing" && prev[id]?.progress != null) {
-          merged[id] = { ...merged[id], progress: prev[id].progress };
-        }
+      const notesByVideo = {};
+      (notesRows || []).forEach((n) => {
+        const note = {
+          id: n.id,
+          time: Number(n.time_seconds),
+          endTime: n.end_time_seconds != null ? Number(n.end_time_seconds) : null,
+          text: n.text || "",
+          drawing: n.drawing_path ? drawingUrlMap[n.drawing_path] : null,
+          replies: repliesByNote[n.id] || [],
+          createdAt: new Date(n.created_at).getTime(),
+          authorName: profileMap[n.created_by] || "Someone",
+        };
+        (notesByVideo[n.video_id] ||= []).push(note);
       });
-      return merged;
-    });
-    setDataLoaded(true);
+      Object.values(notesByVideo).forEach((list) => list.sort((a, b) => a.time - b.time));
+
+      const readyVideos = (videosRows || []).filter((v) => v.status === "ready" && v.storage_path);
+      const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await getCachedSignedUrl("videos", v.storage_path)]));
+      const videoUrlMap = Object.fromEntries(videoUrlEntries);
+
+      const nextFolders = { ...seedFolders() };
+      (foldersRows || []).forEach((f) => {
+        nextFolders[f.id] = { id: f.id, name: f.name, parentId: f.parent_id || ROOT_ID, archived: f.archived, order: f.order_index };
+      });
+
+      const nextVideos = {};
+      (videosRows || []).forEach((v) => {
+        nextVideos[v.id] = {
+          id: v.id,
+          folderId: v.folder_id || ROOT_ID,
+          name: v.name,
+          url: videoUrlMap[v.id] || null,
+          notes: notesByVideo[v.id] || [],
+          locked: v.locked, password: v.password || "",
+          status: v.status,
+          progress: v.status === "ready" ? 100 : 0,
+          archived: v.archived,
+          updatedAt: new Date(v.updated_at).getTime(),
+          order: v.order_index,
+          reviewStatus: v.review_status,
+        };
+      });
+
+      setFolders(nextFolders);
+      setVideos((prev) => {
+        // preserve the local, purely cosmetic upload-progress animation for videos
+        // still processing — that number only ever lives in the browser, not the DB
+        const merged = nextVideos;
+        Object.keys(merged).forEach((id) => {
+          if (merged[id].status === "processing" && prev[id]?.progress != null) {
+            merged[id] = { ...merged[id], progress: prev[id].progress };
+          }
+        });
+        return merged;
+      });
+      setLoadError("");
+      setDataLoaded(true);
+    } catch (err) {
+      console.error("Couldn't load workspace data:", err);
+      setLoadError(err.message || "Something went wrong loading your data.");
+      setDataLoaded(true); // stop showing an infinite spinner — show the error screen instead
+    }
   }, [getCachedSignedUrl]);
 
   // once signed in: load everything once
@@ -895,6 +903,17 @@ function App() {
         <AuthScreen />
       ) : !dataLoaded ? (
         <LoadingScreen label="Loading your workspace…" />
+      ) : loadError ? (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div className="card" style={{ width: "100%", maxWidth: 400, padding: 32, textAlign: "center" }}>
+            <p className="display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Couldn't load your workspace</p>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 22 }}>{loadError}</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button className="btn btn-accent" onClick={() => { setDataLoaded(false); loadAllData(); }}>Try again</button>
+              <button className="btn" onClick={signOut}>Sign out</button>
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           {screen === "home" && (
