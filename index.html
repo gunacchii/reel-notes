@@ -166,6 +166,7 @@ async function copyText(text) {
 const SUPABASE_URL = "https://spewxximxelaybgtvstd.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_vMVeOgxsk33OfmKgq40swQ_aRd7j8e3";
 const SESSION_KEY = "reelnotes_session";
+const SIGNED_URL_TTL = 60 * 60 * 24; // 24 hours
 
 function getStoredSession() {
   try {
@@ -338,7 +339,7 @@ async function storageUpload(bucket, path, file) {
   }
   return res.json();
 }
-async function storageSignedUrl(bucket, path, expiresIn = 60 * 60 * 24) {
+async function storageSignedUrl(bucket, path, expiresIn = SIGNED_URL_TTL) {
   if (!path) return null;
   const token = await authHeader();
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
