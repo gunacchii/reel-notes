@@ -28,6 +28,9 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.1.0/umd/react.production.min.js" onerror="showBootError()"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.1.0/umd/react-dom.production.min.js" onerror="showBootError()"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js" onerror="showBootError()"></script>
 <script>
   function showBootError() {
     var m = document.getElementById('boot-msg');
@@ -36,10 +39,6 @@
     if (e) e.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8b93a3;font:14px -apple-system,Inter,sans-serif;text-align:center;padding:24px;';
   }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.1.0/umd/react.production.min.js" onerror="showBootError()"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.1.0/umd/react-dom.production.min.js" onerror="showBootError()"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js" onerror="showBootError()"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabaseClient.js" onerror="showBootError()"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
@@ -158,27 +157,196 @@ async function copyText(text) {
   }
 }
 
-/* ---------- Supabase backend ---------- */
-// Real shared backend now: auth, the database, and the video/drawing files
-// themselves all live in Supabase, so everyone signed in sees the same workspace.
+/* ---------- Supabase backend (via direct REST calls) ---------- */
+// Deliberately NOT using the official supabase-js library here — it only ships
+// from third-party CDNs (jsdelivr/unpkg), and some networks block those even
+// though they load everything else fine. Talking to Supabase's REST API
+// directly with plain fetch() removes that dependency entirely.
 
-const SUPABASE_URL = "https://spewxximxelaybgtvstd.supabaseClient.co";
+const SUPABASE_URL = "https://spewxximxelaybgtvstd.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_vMVeOgxsk33OfmKgq40swQ_aRd7j8e3";
-if (!window.supabase) {
-  throw new Error(
-    "The Supabase library didn't load (check your internet connection and refresh) — " +
-    "this app can't work without it."
-  );
+const SESSION_KEY = "reelnotes_session";
+
+function getStoredSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+function persistSession(session) {
+  try {
+    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch { /* ignore storage errors (e.g. private browsing) */ }
+}
 
-const SIGNED_URL_TTL = 60 * 60 * 24; // 24 hours — regenerated on every data reload
+let currentSession = getStoredSession();
+const sessionListeners = new Set();
+function setSession(session) {
+  currentSession = session;
+  persistSession(session);
+  sessionListeners.forEach((fn) => fn(session));
+}
+function onSessionChange(fn) {
+  sessionListeners.add(fn);
+  return () => sessionListeners.delete(fn);
+}
 
-async function getSignedUrl(bucket, path) {
+async function authRequest(path, body) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || "Something went wrong.");
+  return data;
+}
+function applyAuthResponse(data) {
+  if (data && data.access_token) {
+    setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: Date.now() + (data.expires_in || 3600) * 1000,
+      user: data.user || null,
+    });
+  }
+}
+async function signUpWithPassword(email, password) {
+  return authRequest("/signup", { email, password });
+}
+async function signInWithPassword(email, password) {
+  const data = await authRequest("/token?grant_type=password", { email, password });
+  applyAuthResponse(data);
+  return data;
+}
+async function refreshSession() {
+  if (!currentSession || !currentSession.refresh_token) return null;
+  try {
+    const data = await authRequest("/token?grant_type=refresh_token", { refresh_token: currentSession.refresh_token });
+    applyAuthResponse(data);
+    return currentSession;
+  } catch {
+    setSession(null);
+    return null;
+  }
+}
+async function signOut() {
+  if (currentSession && currentSession.access_token) {
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${currentSession.access_token}` },
+      });
+    } catch { /* ignore — we're clearing the local session either way */ }
+  }
+  setSession(null);
+}
+function signInWithGoogle() {
+  const redirectTo = window.location.origin + window.location.pathname;
+  window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+// after a Google OAuth redirect, tokens come back as a URL hash fragment
+function consumeAuthRedirect() {
+  if (window.location.hash.includes("access_token")) {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    const expires_in = Number(params.get("expires_in") || 3600);
+    if (access_token) {
+      setSession({ access_token, refresh_token, expires_at: Date.now() + expires_in * 1000, user: null });
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      return true;
+    }
+  }
+  return false;
+}
+// makes sure we have a non-expired access token before any API call, quietly
+// refreshing it first if it's about to expire
+async function ensureFreshSession() {
+  if (!currentSession) return null;
+  if (currentSession.expires_at - Date.now() < 60000) return await refreshSession();
+  return currentSession;
+}
+async function authHeader() {
+  const session = await ensureFreshSession();
+  return session ? session.access_token : SUPABASE_ANON_KEY;
+}
+async function getCurrentUser() {
+  const session = await ensureFreshSession();
+  if (!session) return null;
+  if (session.user) return session.user;
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) return null;
+  const user = await res.json();
+  setSession({ ...session, user });
+  return user;
+}
+
+/* ---- database (PostgREST) ---- */
+async function dbRequest(method, table, { query = "", body, extraHeaders = {} } = {}) {
+  const token = await authHeader();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${query}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      ...extraHeaders,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Request to ${table} failed`);
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+const db = {
+  select: (table, query = "?select=*") => dbRequest("GET", table, { query }),
+  insert: (table, row) => dbRequest("POST", table, { body: row, extraHeaders: { Prefer: "return=representation" } }),
+  update: (table, filter, patch) => dbRequest("PATCH", table, { query: `?${filter}`, body: patch }),
+  delete: (table, filter) => dbRequest("DELETE", table, { query: `?${filter}` }),
+};
+
+/* ---- storage ---- */
+async function storageUpload(bucket, path, file) {
+  const token = await authHeader();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Upload failed");
+  }
+  return res.json();
+}
+async function storageSignedUrl(bucket, path, expiresIn = 60 * 60 * 24) {
   if (!path) return null;
-  const { data, error } = await supabaseClient.storage.from(bucket).createSignedUrl(path, SIGNED_URL_TTL);
-  if (error) { console.error(`Couldn't sign URL for ${bucket}/${path}:`, error); return null; }
-  return data.signedUrl;
+  const token = await authHeader();
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ expiresIn }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.signedURL ? `${SUPABASE_URL}/storage/v1${data.signedURL}` : null;
+}
+async function storageRemove(bucket, paths) {
+  if (!paths || !paths.length) return;
+  const token = await authHeader();
+  await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ prefixes: paths }),
+  });
 }
 
 // Converts a canvas data URL (from the drawing feature) into a Blob for upload.
@@ -244,11 +412,9 @@ function AuthScreen() {
     setLoading(true);
     try {
       if (mode === "signin") {
-        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await signInWithPassword(email, password);
       } else {
-        const { error } = await supabaseClient.auth.signUp({ email, password });
-        if (error) throw error;
+        await signUpWithPassword(email, password);
         setInfo("Check your email to confirm your account, then sign in.");
       }
     } catch (err) {
@@ -256,15 +422,6 @@ function AuthScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGoogle = async () => {
-    setError("");
-    const { error } = await supabaseClient.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) setError(error.message);
   };
 
   return (
@@ -277,7 +434,7 @@ function AuthScreen() {
 
         <button
           type="button"
-          onClick={handleGoogle}
+          onClick={signInWithGoogle}
           className="btn"
           style={{ width: "100%", justifyContent: "center", padding: "10px 14px", marginBottom: 16, fontSize: 14 }}
         >
@@ -340,7 +497,7 @@ function AuthScreen() {
 /* ================= APP ================= */
 
 function App() {
-  const [session, setSession] = useState(undefined); // undefined = checking, null = signed out
+  const [session, setSessionState] = useState(undefined); // undefined = checking, null = signed out
   const [profile, setProfile] = useState(null);
   const [folders, setFolders] = useState(seedFolders);
   const [videos, setVideos] = useState({});
@@ -351,31 +508,35 @@ function App() {
   const [query, setQuery] = useState("");
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // track the Supabase auth session
+  // check for an existing session (or one just returned from a Google redirect)
   useEffect(() => {
-    supabaseClient.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabaseClient.auth.onAuthStateChange((_event, sess) => setSession(sess));
-    return () => listener.subscription.unsubscribe();
+    consumeAuthRedirect();
+    const unsubscribe = onSessionChange((s) => setSessionState(s));
+    (async () => {
+      if (currentSession) await getCurrentUser(); // fills in session.user if missing
+      setSessionState(currentSession);
+    })();
+    return unsubscribe;
   }, []);
 
   // load this person's profile once signed in
   useEffect(() => {
-    if (!session) { setProfile(null); return; }
-    supabaseClient.from("profiles").select("*").eq("id", session.user.id).single()
-      .then(({ data }) => setProfile(data || null));
+    if (!session || !session.user) { setProfile(null); return; }
+    db.select("profiles", `?id=eq.${session.user.id}&select=*`)
+      .then((rows) => setProfile((rows && rows[0]) || null))
+      .catch(() => setProfile(null));
   }, [session?.user?.id]);
 
-  // pulls the entire shared workspace (folders, videos, notes, replies, profiles)
-  // and reshapes it into the same local data shape the rest of the app expects
+  // pulls the entire shared workspace and reshapes it into the same local
+  // data shape the rest of the app already expects
   const loadAllData = useCallback(async () => {
-    const [{ data: foldersRows }, { data: videosRows }, { data: notesRows }, { data: repliesRows }, { data: profilesRows }] =
-      await Promise.all([
-        supabaseClient.from("folders").select("*"),
-        supabaseClient.from("videos").select("*"),
-        supabaseClient.from("notes").select("*"),
-        supabaseClient.from("note_replies").select("*"),
-        supabaseClient.from("profiles").select("*"),
-      ]);
+    const [foldersRows, videosRows, notesRows, repliesRows, profilesRows] = await Promise.all([
+      db.select("folders"),
+      db.select("videos"),
+      db.select("notes"),
+      db.select("note_replies"),
+      db.select("profiles"),
+    ]);
 
     const profileMap = {};
     (profilesRows || []).forEach((p) => { profileMap[p.id] = p.display_name || "Someone"; });
@@ -388,7 +549,7 @@ function App() {
     });
 
     const drawingPaths = (notesRows || []).map((n) => n.drawing_path).filter(Boolean);
-    const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await getSignedUrl("drawings", p)]));
+    const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await storageSignedUrl("drawings", p)]));
     const drawingUrlMap = Object.fromEntries(drawingUrlEntries);
 
     const notesByVideo = {};
@@ -408,7 +569,7 @@ function App() {
     Object.values(notesByVideo).forEach((list) => list.sort((a, b) => a.time - b.time));
 
     const readyVideos = (videosRows || []).filter((v) => v.status === "ready" && v.storage_path);
-    const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await getSignedUrl("videos", v.storage_path)]));
+    const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await storageSignedUrl("videos", v.storage_path)]));
     const videoUrlMap = Object.fromEntries(videoUrlEntries);
 
     const nextFolders = { ...seedFolders() };
@@ -449,56 +610,37 @@ function App() {
     setDataLoaded(true);
   }, []);
 
-  // once signed in: load everything, then keep it live via realtime subscriptions
+  // once signed in: load everything, then keep it fresh with light polling
+  // (simpler and more robust here than a websocket subscription)
   useEffect(() => {
     if (!session) return;
     setDataLoaded(false);
     loadAllData();
-
-    let debounceTimer = null;
-    const scheduleReload = () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(loadAllData, 250);
-    };
-
-    const channel = supabaseClient
-      .channel("reel-notes-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "folders" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "videos" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "notes" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "note_replies" }, scheduleReload)
-      .subscribe();
-
-    return () => {
-      clearTimeout(debounceTimer);
-      supabaseClient.removeChannel(channel);
-    };
+    const interval = setInterval(loadAllData, 6000);
+    return () => clearInterval(interval);
   }, [session, loadAllData]);
-
-  const signOut = () => supabaseClient.auth.signOut();
 
   /* ---- folder ops ---- */
   const createFolder = async (parentId, name) => {
-    const { data, error } = await supabaseClient.from("folders").insert({
+    const rows = await db.insert("folders", {
       name: name || "Untitled Folder",
       parent_id: parentId === ROOT_ID ? null : parentId,
       created_by: session.user.id,
-    }).select().single();
-    if (error) { console.error("Couldn't create folder:", error); return null; }
+    });
     await loadAllData();
-    return data.id;
+    return rows && rows[0] ? rows[0].id : null;
   };
   const renameFolder = async (id, name) => {
     if (!name) return;
-    await supabaseClient.from("folders").update({ name }).eq("id", id);
+    await db.update("folders", `id=eq.${id}`, { name });
   };
   const archiveFolder = async (id, archived) => {
-    await supabaseClient.from("folders").update({ archived }).eq("id", id);
+    await db.update("folders", `id=eq.${id}`, { archived });
   };
   const deleteFolderRecursive = async (id) => {
     // gather every video's storage file under this folder tree before the DB
     // cascade deletes the rows, so we can clean up the actual files too
-    const { data: allFolders } = await supabaseClient.from("folders").select("id, parent_id");
+    const allFolders = await db.select("folders", "?select=id,parent_id");
     const toDelete = new Set([id]);
     let changed = true;
     while (changed) {
@@ -507,34 +649,34 @@ function App() {
         if (toDelete.has(f.parent_id) && !toDelete.has(f.id)) { toDelete.add(f.id); changed = true; }
       });
     }
-    const { data: victimVideos } = await supabaseClient.from("videos").select("id, storage_path").in("folder_id", [...toDelete]);
-    await supabaseClient.from("folders").delete().eq("id", id);
+    const victimVideos = await db.select("videos", `?select=id,storage_path&folder_id=in.(${[...toDelete].join(",")})`);
+    await db.delete("folders", `id=eq.${id}`);
     const paths = (victimVideos || []).map((v) => v.storage_path).filter(Boolean);
-    if (paths.length) await supabaseClient.storage.from("videos").remove(paths);
+    if (paths.length) await storageRemove("videos", paths);
     await loadAllData();
   };
   // moves a folder to become a child of newParentId; refuses if that would move
   // the folder into itself (the database's own FK constraints stop deeper cycles)
   const moveFolderToFolder = async (id, newParentId) => {
     if (id === newParentId) return;
-    await supabaseClient.from("folders").update({ parent_id: newParentId === ROOT_ID ? null : newParentId }).eq("id", id);
+    await db.update("folders", `id=eq.${id}`, { parent_id: newParentId === ROOT_ID ? null : newParentId });
   };
   const reorderFolders = async (orderedIds) => {
-    await Promise.all(orderedIds.map((id, i) => supabaseClient.from("folders").update({ order_index: i }).eq("id", id)));
+    await Promise.all(orderedIds.map((id, i) => db.update("folders", `id=eq.${id}`, { order_index: i })));
     await loadAllData();
   };
 
   /* ---- video ops ---- */
   const addVideoFile = async (file, folderId) => {
     if (!file || !file.type.startsWith("video/")) return;
-    const { data: row, error } = await supabaseClient.from("videos").insert({
+    const rows = await db.insert("videos", {
       folder_id: folderId === ROOT_ID ? null : folderId,
       name: file.name.replace(/\.[^/.]+$/, ""),
       status: "processing",
       created_by: session.user.id,
-    }).select().single();
-    if (error) { console.error("Couldn't create video:", error); return; }
-    const id = row.id;
+    });
+    if (!rows || !rows[0]) return;
+    const id = rows[0].id;
     await loadAllData();
 
     // purely cosmetic progress animation while the real upload happens in parallel
@@ -549,21 +691,24 @@ function App() {
 
     const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
     const path = `${id}.${ext}`;
-    const { error: uploadError } = await supabaseClient.storage.from("videos").upload(path, file);
-    clearInterval(interval);
-    if (uploadError) {
-      console.error("Upload failed:", uploadError);
-      await supabaseClient.from("videos").delete().eq("id", id);
+    try {
+      await storageUpload("videos", path, file);
+    } catch (err) {
+      clearInterval(interval);
+      console.error("Upload failed:", err);
+      await db.delete("videos", `id=eq.${id}`);
       await loadAllData();
       return;
     }
-    await supabaseClient.from("videos").update({ storage_path: path, status: "ready", updated_at: new Date().toISOString() }).eq("id", id);
+    clearInterval(interval);
+    await db.update("videos", `id=eq.${id}`, { storage_path: path, status: "ready", updated_at: new Date().toISOString() });
     await loadAllData();
   };
   const deleteVideo = async (id) => {
-    const { data: row } = await supabaseClient.from("videos").select("storage_path").eq("id", id).single();
-    await supabaseClient.from("videos").delete().eq("id", id);
-    if (row?.storage_path) await supabaseClient.storage.from("videos").remove([row.storage_path]);
+    const rows = await db.select("videos", `?id=eq.${id}&select=storage_path`);
+    await db.delete("videos", `id=eq.${id}`);
+    const path = rows && rows[0] && rows[0].storage_path;
+    if (path) await storageRemove("videos", [path]);
     await loadAllData();
   };
   const updateVideo = async (id, patch) => {
@@ -573,16 +718,16 @@ function App() {
     if (patch.locked !== undefined) dbPatch.locked = patch.locked;
     if (patch.password !== undefined) dbPatch.password = patch.password;
     if (patch.reviewStatus !== undefined) dbPatch.review_status = patch.reviewStatus;
-    await supabaseClient.from("videos").update(dbPatch).eq("id", id);
+    await db.update("videos", `id=eq.${id}`, dbPatch);
   };
   const archiveVideo = async (id, archived) => updateVideo(id, { archived });
   const renameVideo = async (id, name) => { if (name.trim()) await updateVideo(id, { name: name.trim() }); };
   const setVideoReviewStatus = async (id, reviewStatus) => updateVideo(id, { reviewStatus });
   const moveVideoToFolder = async (id, folderId) => {
-    await supabaseClient.from("videos").update({ folder_id: folderId === ROOT_ID ? null : folderId }).eq("id", id);
+    await db.update("videos", `id=eq.${id}`, { folder_id: folderId === ROOT_ID ? null : folderId });
   };
   const reorderVideos = async (orderedIds) => {
-    await Promise.all(orderedIds.map((id, i) => supabaseClient.from("videos").update({ order_index: i }).eq("id", id)));
+    await Promise.all(orderedIds.map((id, i) => db.update("videos", `id=eq.${id}`, { order_index: i })));
     await loadAllData();
   };
 
@@ -593,36 +738,41 @@ function App() {
     if (drawing) {
       const blob = dataURLtoBlob(drawing);
       drawing_path = `${videoId}/${crypto.randomUUID()}.png`;
-      const { error } = await supabaseClient.storage.from("drawings").upload(drawing_path, blob, { contentType: "image/png" });
-      if (error) { console.error("Couldn't save drawing:", error); drawing_path = null; }
+      try {
+        await storageUpload("drawings", drawing_path, blob);
+      } catch (err) {
+        console.error("Couldn't save drawing:", err);
+        drawing_path = null;
+      }
     }
-    await supabaseClient.from("notes").insert({
+    await db.insert("notes", {
       video_id: videoId, time_seconds: time, end_time_seconds: endTime,
       text: text.trim(), drawing_path, created_by: session.user.id,
     });
-    await supabaseClient.from("videos").update({ updated_at: new Date().toISOString() }).eq("id", videoId);
+    await db.update("videos", `id=eq.${videoId}`, { updated_at: new Date().toISOString() });
     await loadAllData();
   };
   const editNote = async (videoId, noteId, text) => {
-    await supabaseClient.from("notes").update({ text }).eq("id", noteId);
+    await db.update("notes", `id=eq.${noteId}`, { text });
   };
   const editNoteTime = async (videoId, noteId, time, endTime) => {
-    await supabaseClient.from("notes").update({ time_seconds: time, end_time_seconds: endTime ?? null }).eq("id", noteId);
+    await db.update("notes", `id=eq.${noteId}`, { time_seconds: time, end_time_seconds: endTime ?? null });
   };
   const deleteNote = async (videoId, noteId) => {
-    const { data: row } = await supabaseClient.from("notes").select("drawing_path").eq("id", noteId).single();
-    await supabaseClient.from("notes").delete().eq("id", noteId);
-    if (row?.drawing_path) await supabaseClient.storage.from("drawings").remove([row.drawing_path]);
+    const rows = await db.select("notes", `?id=eq.${noteId}&select=drawing_path`);
+    await db.delete("notes", `id=eq.${noteId}`);
+    const path = rows && rows[0] && rows[0].drawing_path;
+    if (path) await storageRemove("drawings", [path]);
     await loadAllData();
   };
   const addReply = async (videoId, noteId, text) => {
     if (!text.trim()) return;
-    await supabaseClient.from("note_replies").insert({ note_id: noteId, text: text.trim(), created_by: session.user.id });
-    await supabaseClient.from("videos").update({ updated_at: new Date().toISOString() }).eq("id", videoId);
+    await db.insert("note_replies", { note_id: noteId, text: text.trim(), created_by: session.user.id });
+    await db.update("videos", `id=eq.${videoId}`, { updated_at: new Date().toISOString() });
     await loadAllData();
   };
   const deleteReply = async (videoId, noteId, replyId) => {
-    await supabaseClient.from("note_replies").delete().eq("id", replyId);
+    await db.delete("note_replies", `id=eq.${replyId}`);
     await loadAllData();
   };
 
