@@ -226,7 +226,8 @@ async function refreshSession() {
     const data = await authRequest("/token?grant_type=refresh_token", { refresh_token: currentSession.refresh_token });
     applyAuthResponse(data);
     return currentSession;
-  } catch {
+  } catch (err) {
+    console.warn("Session refresh failed — signing out:", err.message);
     setSession(null);
     return null;
   }
@@ -262,10 +263,20 @@ function consumeAuthRedirect() {
   return false;
 }
 // makes sure we have a non-expired access token before any API call, quietly
-// refreshing it first if it's about to expire
+// refreshing it first if it's about to expire. Many requests can fire at once
+// (loadAllData runs several in parallel), so concurrent callers share a single
+// in-flight refresh instead of each racing to refresh independently — Supabase
+// rotates the refresh token, so a race here would invalidate every call but the
+// first and silently sign the person out.
+let refreshPromise = null;
 async function ensureFreshSession() {
   if (!currentSession) return null;
-  if (currentSession.expires_at - Date.now() < 60000) return await refreshSession();
+  if (currentSession.expires_at - Date.now() < 60000) {
+    if (!refreshPromise) {
+      refreshPromise = refreshSession().finally(() => { refreshPromise = null; });
+    }
+    return await refreshPromise;
+  }
   return currentSession;
 }
 async function authHeader() {
@@ -529,6 +540,18 @@ function App() {
 
   // pulls the entire shared workspace and reshapes it into the same local
   // data shape the rest of the app already expects
+  const signedUrlCacheRef = useRef({}); // "bucket/path" -> { url, expiresAt } — reused across polls so a
+  // playing <video>'s src doesn't change underneath it every time we refresh
+  const getCachedSignedUrl = useCallback(async (bucket, path) => {
+    const key = `${bucket}/${path}`;
+    const cached = signedUrlCacheRef.current[key];
+    // reuse an existing URL until it's within an hour of expiring
+    if (cached && cached.expiresAt - Date.now() > 60 * 60 * 1000) return cached.url;
+    const url = await storageSignedUrl(bucket, path);
+    if (url) signedUrlCacheRef.current[key] = { url, expiresAt: Date.now() + SIGNED_URL_TTL * 1000 };
+    return url;
+  }, []);
+
   const loadAllData = useCallback(async () => {
     const [foldersRows, videosRows, notesRows, repliesRows, profilesRows] = await Promise.all([
       db.select("folders"),
@@ -549,7 +572,7 @@ function App() {
     });
 
     const drawingPaths = (notesRows || []).map((n) => n.drawing_path).filter(Boolean);
-    const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await storageSignedUrl("drawings", p)]));
+    const drawingUrlEntries = await Promise.all(drawingPaths.map(async (p) => [p, await getCachedSignedUrl("drawings", p)]));
     const drawingUrlMap = Object.fromEntries(drawingUrlEntries);
 
     const notesByVideo = {};
@@ -569,7 +592,7 @@ function App() {
     Object.values(notesByVideo).forEach((list) => list.sort((a, b) => a.time - b.time));
 
     const readyVideos = (videosRows || []).filter((v) => v.status === "ready" && v.storage_path);
-    const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await storageSignedUrl("videos", v.storage_path)]));
+    const videoUrlEntries = await Promise.all(readyVideos.map(async (v) => [v.id, await getCachedSignedUrl("videos", v.storage_path)]));
     const videoUrlMap = Object.fromEntries(videoUrlEntries);
 
     const nextFolders = { ...seedFolders() };
@@ -608,17 +631,23 @@ function App() {
       return merged;
     });
     setDataLoaded(true);
-  }, []);
+  }, [getCachedSignedUrl]);
 
-  // once signed in: load everything, then keep it fresh with light polling
-  // (simpler and more robust here than a websocket subscription)
+  // once signed in: load everything once
   useEffect(() => {
     if (!session) return;
     setDataLoaded(false);
     loadAllData();
+  }, [session, loadAllData]);
+
+  // then keep it fresh with light polling (simpler and more robust here than a
+  // websocket subscription) — but pause it while a video is actually playing,
+  // so background refreshes don't compete with it for bandwidth and cause stutter
+  useEffect(() => {
+    if (!session || screen === "video") return;
     const interval = setInterval(loadAllData, 6000);
     return () => clearInterval(interval);
-  }, [session, loadAllData]);
+  }, [session, screen, loadAllData]);
 
   /* ---- folder ops ---- */
   const createFolder = async (parentId, name) => {
@@ -784,6 +813,7 @@ function App() {
   const goHome = () => {
     setScreen("home");
     setCurrentVideoId(null);
+    loadAllData();
   };
 
   const currentVideo = currentVideoId ? videos[currentVideoId] : null;
@@ -926,6 +956,7 @@ function HomeScreen({
 }) {
   const fileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -1212,12 +1243,25 @@ function HomeScreen({
     };
   }, [query, folders, videos, searching]);
 
+  const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // Supabase's free-plan hard cap
+  const tryAddVideoFile = (file) => {
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(
+        `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(0)} MB — over the 50 MB free-plan limit. ` +
+        `Compress or export it smaller (lower resolution/bitrate) and try again.`
+      );
+      return;
+    }
+    setUploadError("");
+    addVideoFile(file, currentFolderId);
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
     if (dragPayload) return; // this was an internal card drag, not a file drop from the OS
     const files = Array.from(e.dataTransfer.files || []);
-    files.forEach((file) => addVideoFile(file, currentFolderId));
+    files.forEach(tryAddVideoFile);
   };
 
   const confirmNewFolder = () => {
@@ -1235,6 +1279,17 @@ function HomeScreen({
 
   return (
     <div>
+      {uploadError && (
+        <div style={{
+          background: "rgba(229,97,90,0.12)", borderBottom: "1px solid var(--danger)", color: "var(--danger)",
+          fontSize: 12.5, padding: "10px 16px", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+        }}>
+          <span>{uploadError}</span>
+          <button className="icon-btn" style={{ width: 20, height: 20, color: "var(--danger)" }} onClick={() => setUploadError("")} title="Dismiss">
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      )}
       {/* top nav bar */}
       <div style={{ borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1351,7 +1406,7 @@ function HomeScreen({
                   accept="video/*"
                   multiple
                   style={{ display: "none" }}
-                  onChange={(e) => { Array.from(e.target.files || []).forEach((f) => addVideoFile(f, currentFolderId)); e.target.value = ""; }}
+                  onChange={(e) => { Array.from(e.target.files || []).forEach(tryAddVideoFile); e.target.value = ""; }}
                 />
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -2546,6 +2601,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   const overlayCanvasRef = useRef(null);
   const drawingRef = useRef(false);
   const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [composerTime, setComposerTime] = useState(null);
@@ -2789,13 +2845,25 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
           <video
             ref={videoRef}
             src={video.url}
+            preload="auto"
+            playsInline
             style={{ width: "100%", maxHeight: "62vh", display: "block" }}
             onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
             onPlay={() => setPlaying(true)}
             onPause={onPause}
+            onWaiting={() => setBuffering(true)}
+            onStalled={() => setBuffering(true)}
+            onPlaying={() => setBuffering(false)}
+            onCanPlay={() => setBuffering(false)}
+            onError={(e) => console.error("Video playback error:", e.currentTarget.error)}
             onClick={drawMode ? undefined : togglePlay}
           />
+          {buffering && !drawMode && (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", border: "3px solid rgba(255,255,255,0.25)", borderTopColor: "#fff", animation: "spin 0.8s linear infinite" }} />
+            </div>
+          )}
           {drawMode && (
             <canvas
               ref={overlayCanvasRef}
