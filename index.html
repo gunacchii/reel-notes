@@ -437,6 +437,36 @@ async function fetchSharedVideo(videoId, password) {
   return res.json();
 }
 
+async function addSharedReply(videoId, noteId, text, guestName, password) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_shared_reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ p_video_id: videoId, p_note_id: noteId, p_text: text, p_guest_name: guestName, p_password: password || null }),
+  });
+  if (!res.ok) throw new Error("Couldn't post that reply.");
+  return res.json();
+}
+
+async function updateSharedVideoStatus(videoId, status, password) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/update_shared_video_status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ p_video_id: videoId, p_status: status, p_password: password || null }),
+  });
+  if (!res.ok) throw new Error("Couldn't update the status.");
+  return res.json();
+}
+
+// remembers the name a guest commenter typed in, so they're only asked once
+// per browser rather than on every single reply
+const GUEST_NAME_KEY = "reelnotes_guest_name";
+function getGuestName() {
+  try { return localStorage.getItem(GUEST_NAME_KEY) || ""; } catch { return ""; }
+}
+function setGuestName(name) {
+  try { localStorage.setItem(GUEST_NAME_KEY, name); } catch { /* ignore */ }
+}
+
 /* ---------- root data seed ---------- */
 // ROOT_ID is a UI-only sentinel — it's never sent to the database. A folder or
 // video with no real parent maps to ROOT_ID locally and to a NULL parent/folder
@@ -1064,6 +1094,15 @@ function PublicVideoView({ videoId }) {
   const [playing, setPlaying] = useState(false);
   const [activeNoteId, setActiveNoteId] = useState(null);
   const [notesListMaxHeight, setNotesListMaxHeight] = useState(400);
+  const [unlockedPassword, setUnlockedPassword] = useState("");
+  const [guestName, setGuestNameState] = useState(() => getGuestName());
+  const [namePromptOpen, setNamePromptOpen] = useState(false);
+  const [namePromptDraft, setNamePromptDraft] = useState("");
+  const [pendingReplyNoteId, setPendingReplyNoteId] = useState(null);
+  const [replyingNoteId, setReplyingNoteId] = useState(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [submittingReply, setSubmittingReply] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   const videoRef = useRef(null);
   const scrubRef = useRef(null);
   const noteRefs = useRef({});
@@ -1095,6 +1134,7 @@ function PublicVideoView({ videoId }) {
       }
       setVideo(data.video);
       setNotes(data.notes || []);
+      setUnlockedPassword(password || "");
       setStatus("ready");
     } catch (err) {
       setStatus("error");
@@ -1139,6 +1179,64 @@ function PublicVideoView({ videoId }) {
     const rect = scrubRef.current.getBoundingClientRect();
     const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     seekTo(pct * duration);
+  };
+
+  // asks for a name once per browser before letting a visitor post their
+  // first reply; after that, replying just opens the text box directly
+  const startReply = (noteId) => {
+    if (!guestName.trim()) {
+      setPendingReplyNoteId(noteId);
+      setNamePromptDraft("");
+      setNamePromptOpen(true);
+      return;
+    }
+    setReplyingNoteId(noteId);
+    setReplyDraft("");
+  };
+
+  const confirmGuestName = (e) => {
+    e.preventDefault();
+    const name = namePromptDraft.trim();
+    if (!name) return;
+    setGuestName(name);
+    setGuestNameState(name);
+    setNamePromptOpen(false);
+    if (pendingReplyNoteId) {
+      setReplyingNoteId(pendingReplyNoteId);
+      setReplyDraft("");
+      setPendingReplyNoteId(null);
+    }
+  };
+
+  const submitReply = async (noteId) => {
+    if (!replyDraft.trim() || submittingReply) return;
+    setSubmittingReply(true);
+    try {
+      await addSharedReply(video.id, noteId, replyDraft, guestName, unlockedPassword);
+      setReplyDraft("");
+      setReplyingNoteId(null);
+      const data = await fetchSharedVideo(videoId, unlockedPassword);
+      if (data.found && !data.locked) setNotes(data.notes || []);
+    } catch (err) {
+      alert("Couldn't post that reply — please try again.");
+    } finally {
+      setSubmittingReply(false);
+    }
+  };
+
+  const changeStatus = async (newStatus) => {
+    if (statusSaving) return;
+    setStatusSaving(true);
+    const prev = video.review_status;
+    setVideo((v) => ({ ...v, review_status: newStatus })); // optimistic
+    try {
+      const result = await updateSharedVideoStatus(video.id, newStatus, unlockedPassword);
+      if (!result.ok) setVideo((v) => ({ ...v, review_status: prev }));
+    } catch (err) {
+      setVideo((v) => ({ ...v, review_status: prev }));
+    } finally {
+      setStatusSaving(false);
+    }
   };
 
   if (status === "loading") {
@@ -1211,8 +1309,11 @@ function PublicVideoView({ videoId }) {
       <div style={{ flex: 1, minHeight: 0, padding: "12px 20px 24px", boxSizing: "border-box" }}>
         <div style={{ maxWidth: 1500, margin: "0 auto", height: "100%" }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start", height: "100%" }}>
-            <div style={{ flex: "1 1 520px", minWidth: 280, display: "flex", flexDirection: "column" }}>
-              <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 16px" }}>{video.name}</p>
+            <div style={{ flex: "1 1 640px", minWidth: 280, display: "flex", flexDirection: "column" }}>
+              <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>{video.name}</p>
+              <div style={{ marginBottom: 16 }}>
+                <StatusBadge status={video.review_status} onChange={changeStatus} compact />
+              </div>
               <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
                 <video
                 ref={videoRef}
@@ -1281,7 +1382,7 @@ function PublicVideoView({ videoId }) {
             </div>
           </div>
 
-          <div style={{ flex: "1 1 380px", minWidth: 320, maxWidth: 480, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: "1 1 340px", minWidth: 300, maxWidth: 420, display: "flex", flexDirection: "column" }}>
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 18 }}>Notes ({sortedNotes.length})</p>
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
@@ -1332,6 +1433,39 @@ function PublicVideoView({ videoId }) {
                         ))}
                       </div>
                     )}
+                    {replyingNoteId === n.id ? (
+                      <div style={{ marginTop: 10 }}>
+                        <textarea
+                          autoFocus
+                          className="field"
+                          rows={2}
+                          style={{ fontSize: 12.5, resize: "vertical" }}
+                          placeholder={`Reply as ${guestName}…`}
+                          value={replyDraft}
+                          onChange={(e) => setReplyDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitReply(n.id); }
+                            if (e.key === "Escape") { setReplyingNoteId(null); setReplyDraft(""); }
+                          }}
+                        />
+                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                          <button className="btn btn-accent" style={{ fontSize: 12, padding: "5px 10px" }} disabled={submittingReply} onClick={() => submitReply(n.id)}>
+                            {submittingReply ? "Posting…" : "Reply"}
+                          </button>
+                          <button className="btn btn-ghost" style={{ fontSize: 12, padding: "5px 10px" }} onClick={() => { setReplyingNoteId(null); setReplyDraft(""); }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="btn btn-ghost"
+                        style={{ fontSize: 11.5, padding: "4px 8px", marginTop: 8, color: "var(--muted)" }}
+                        onClick={() => startReply(n.id)}
+                      >
+                        <Icon name="corner-down-right" size={12} /> Reply
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1340,6 +1474,37 @@ function PublicVideoView({ videoId }) {
         </div>
       </div>
       </div>
+
+      {namePromptOpen && (
+        <div
+          onClick={() => { setNamePromptOpen(false); setPendingReplyNoteId(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}
+        >
+          <form
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={confirmGuestName}
+            className="card"
+            style={{ width: "100%", maxWidth: 340, padding: 24, margin: 16 }}
+          >
+            <p className="display" style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>What's your name?</p>
+            <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>
+              So the team knows who's leaving feedback. Just asked once.
+            </p>
+            <input
+              autoFocus
+              className="field"
+              placeholder="Your name"
+              value={namePromptDraft}
+              onChange={(e) => setNamePromptDraft(e.target.value)}
+              style={{ marginBottom: 14 }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn btn-accent" style={{ flex: 1, justifyContent: "center" }}>Continue</button>
+              <button type="button" className="btn" onClick={() => { setNamePromptOpen(false); setPendingReplyNoteId(null); }}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -3081,6 +3246,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   const [duration, setDuration] = useState(0);
   const [composerTime, setComposerTime] = useState(null);
   const [composerEndTime, setComposerEndTime] = useState(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState("");
   const [composerDrawing, setComposerDrawing] = useState(null); // dataURL or null
   const [drawMode, setDrawMode] = useState(false);
@@ -3106,8 +3272,8 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   };
 
   useEffect(() => {
-    if (composerTime !== null) composerRef.current?.focus();
-  }, [composerTime]);
+    if (composerOpen) composerRef.current?.focus();
+  }, [composerOpen]);
 
   // size + position the drawing canvas to match the video's actual visible content —
   // computed from its real pixel dimensions rather than assumed from the element's
@@ -3157,18 +3323,20 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
 
   const onPause = () => {
     setPlaying(false);
-    setComposerEndTime(null);
-    setComposerTime(videoRef.current?.currentTime ?? 0);
   };
 
   const openComposerNow = () => {
+    if (videoRef.current && !videoRef.current.paused) { videoRef.current.pause(); setPlaying(false); }
     setComposerEndTime(null);
     setComposerTime(videoRef.current?.currentTime ?? current);
+    setComposerOpen(true);
   };
 
   const openDrawMode = () => {
     if (videoRef.current && !videoRef.current.paused) { videoRef.current.pause(); setPlaying(false); }
-    if (composerTime === null) { setComposerEndTime(null); setComposerTime(videoRef.current?.currentTime ?? current); }
+    if (composerTime === null) setComposerEndTime(null);
+    setComposerTime((t) => (t === null ? (videoRef.current?.currentTime ?? current) : t));
+    setComposerOpen(true);
     setDrawMode(true);
   };
 
@@ -3258,16 +3426,8 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
 
     const dur = durationNow();
     if (movedPx < 6) {
-      // a simple click
-      const clickTime = startPct * dur;
-      seekTo(clickTime);
-      // if a note is already being drafted (not saved yet), clicking elsewhere
-      // on the bar moves it here instead of just seeking playback — lets you
-      // change your mind about where the note should land before saving
-      if (composerTime !== null && !drawMode) {
-        setComposerTime(clickTime);
-        setComposerEndTime(null);
-      }
+      // a simple click — just seek, never touches the note mark or composer
+      seekTo(startPct * dur);
     } else {
       const t1 = startPct * dur;
       const t2 = endPct * dur;
@@ -3277,9 +3437,20 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
       seekTo(start);
       setComposerTime(start);
       setComposerEndTime(end);
+      setComposerOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // double-clicking the bar drops (or moves) the pending note mark without
+  // forcing the answer box open and without touching playback — lets you flag
+  // a moment while still watching, or nudge an already-open draft elsewhere
+  const handleScrubDoubleClick = (e) => {
+    if (drawMode) return;
+    const pct = pctFromClientX(e.clientX);
+    setComposerTime(pct * durationNow());
+    setComposerEndTime(null);
+  };
 
   const handleScrubMouseDown = (e) => {
     const pct = pctFromClientX(e.clientX);
@@ -3301,12 +3472,14 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
     setComposerDrawing(null);
     setComposerTime(null);
     setComposerEndTime(null);
+    setComposerOpen(false);
   };
   const cancelComposer = () => {
     setComposerTime(null);
     setComposerEndTime(null);
     setComposerText("");
     setComposerDrawing(null);
+    setComposerOpen(false);
   };
 
   const sortedNotes = [...video.notes].sort((a, b) => a.time - b.time);
@@ -3414,6 +3587,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
             <div
               ref={scrubRef}
               onMouseDown={handleScrubMouseDown}
+              onDoubleClick={handleScrubDoubleClick}
               style={{ position: "relative", flex: 1, height: 8, background: "var(--panel-raised)", borderRadius: 6, cursor: "pointer", userSelect: "none" }}
             >
               <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${duration ? (current / duration) * 100 : 0}%`, background: "var(--accent-dim)", borderRadius: 6 }} />
@@ -3522,7 +3696,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
           </p>
         </div>
 
-        {composerTime !== null && !drawMode && (
+        {composerOpen && !drawMode && (
           <div className="card" style={{ padding: 14, marginTop: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span className="mono" style={{ background: "var(--accent-dim)", color: "var(--accent)", padding: "2px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
@@ -3566,7 +3740,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
       </div>
 
       {/* right sidebar: notes */}
-      <div style={{ width: 340, borderLeft: "1px solid var(--border)", display: "flex", flexDirection: "column", background: "var(--panel)" }}>
+      <div style={{ width: 310, borderLeft: "1px solid var(--border)", display: "flex", flexDirection: "column", background: "var(--panel)" }}>
         <div style={{ padding: "18px 18px 12px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <p className="display" style={{ fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
             <Icon name="message" size={15} color="var(--accent)" /> Notes ({sortedNotes.length})
