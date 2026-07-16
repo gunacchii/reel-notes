@@ -1195,7 +1195,7 @@ function PublicVideoView({ videoId }) {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ padding: "24px 20px 16px", flexShrink: 0, maxWidth: 960, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+      <div style={{ padding: "24px 20px 16px", flexShrink: 0, maxWidth: 1500, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
           <div style={{ width: 24, height: 24, borderRadius: 6, background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Icon name="play" size={12} color="#0b1210" />
@@ -1207,7 +1207,7 @@ function PublicVideoView({ videoId }) {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, padding: "0 20px 24px", boxSizing: "border-box" }}>
-        <div style={{ maxWidth: 960, margin: "0 auto", height: "100%" }}>
+        <div style={{ maxWidth: 1500, margin: "0 auto", height: "100%" }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "stretch", height: "100%" }}>
             <div style={{ flex: "1 1 520px", minWidth: 280, display: "flex", flexDirection: "column" }}>
               <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
@@ -1278,7 +1278,7 @@ function PublicVideoView({ videoId }) {
             </div>
           </div>
 
-          <div style={{ flex: "1 1 320px", minWidth: 280, maxWidth: 400, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: "1 1 380px", minWidth: 320, maxWidth: 480, display: "flex", flexDirection: "column" }}>
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Notes ({sortedNotes.length})</p>
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
@@ -1318,13 +1318,13 @@ function PublicVideoView({ videoId }) {
                         style={{ width: "100%", borderRadius: 8, marginTop: 8, background: "#000", objectFit: "contain" }}
                       />
                     )}
-                    {n.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>{n.text}</p>}
+                    {n.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{n.text}</p>}
                     {n.replies && n.replies.length > 0 && (
                       <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, paddingLeft: 12, borderLeft: "2px solid var(--border)" }}>
                         {n.replies.map((r) => (
                           <div key={r.id}>
                             {r.author_name && <p style={{ fontSize: 10.5, color: "var(--muted)", opacity: 0.8, marginBottom: 2 }}>{r.author_name}</p>}
-                            <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{r.text}</p>
+                            <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{r.text}</p>
                           </div>
                         ))}
                       </div>
@@ -3701,7 +3701,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
               style={{ width: "100%", maxHeight: 220, objectFit: "contain", background: "#000", borderRadius: 8, border: "1px solid var(--border)", marginTop: 8, display: "block" }}
             />
           )}
-          {note.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>{linkifyText(note.text)}</p>}
+          {note.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{linkifyText(note.text)}</p>}
         </>
       )}
 
@@ -3712,7 +3712,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
               <div>
                 {r.authorName && <p style={{ fontSize: 10.5, color: "var(--muted)", opacity: 0.8, marginBottom: 2 }}>{r.authorName}</p>}
-                <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{linkifyText(r.text)}</p>
+                <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{linkifyText(r.text)}</p>
               </div>
               <button className="icon-btn" style={{ width: 22, height: 22, flexShrink: 0 }} onClick={() => onDeleteReply(r.id)}><Icon name="x" size={12} /></button>
             </div>
