@@ -3198,16 +3198,22 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   const saveDrawing = () => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
-    const temp = document.createElement("canvas");
-    temp.width = canvas.width;
-    temp.height = canvas.height;
-    const tctx = temp.getContext("2d");
-    if (videoRef.current) {
-      try { tctx.drawImage(videoRef.current, 0, 0, temp.width, temp.height); } catch (err) { /* frame not available yet */ }
+    try {
+      const temp = document.createElement("canvas");
+      temp.width = canvas.width;
+      temp.height = canvas.height;
+      const tctx = temp.getContext("2d");
+      if (videoRef.current) {
+        try { tctx.drawImage(videoRef.current, 0, 0, temp.width, temp.height); } catch (err) { /* frame not available yet */ }
+      }
+      tctx.drawImage(canvas, 0, 0);
+      const dataUrl = temp.toDataURL("image/png");
+      setComposerDrawing(dataUrl);
+      setDrawMode(false);
+    } catch (err) {
+      console.error("Couldn't save drawing:", err);
+      alert("Couldn't save the drawing — please try again. If this keeps happening, let us know.");
     }
-    tctx.drawImage(canvas, 0, 0);
-    setComposerDrawing(temp.toDataURL("image/png"));
-    setDrawMode(false);
   };
 
   const seekTo = (t, noteId) => {
@@ -3326,6 +3332,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
             src={video.url}
             preload="auto"
             playsInline
+            crossOrigin="anonymous"
             style={{ width: "100%", maxHeight: "62vh", display: "block" }}
             onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
