@@ -417,6 +417,26 @@ function dataURLtoBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
+// Public URL for a file in a bucket marked public — no auth or signing needed.
+// Used only by the public share view; everywhere else in the app still uses
+// short-lived signed URLs against the private buckets.
+function publicStorageUrl(bucket, path) {
+  if (!path) return null;
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
+}
+
+// Calls the narrow, read-only get_shared_video RPC — the only door anonymous
+// visitors have into the database. No login required, no other data reachable.
+async function fetchSharedVideo(videoId, password) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_shared_video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ p_video_id: videoId, p_password: password || null }),
+  });
+  if (!res.ok) throw new Error("Couldn't load this video.");
+  return res.json();
+}
+
 /* ---------- root data seed ---------- */
 // ROOT_ID is a UI-only sentinel — it's never sent to the database. A folder or
 // video with no real parent maps to ROOT_ID locally and to a NULL parent/folder
@@ -874,76 +894,7 @@ function App() {
   const currentVideo = currentVideoId ? videos[currentVideoId] : null;
 
   return (
-    <div className="app-root">
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
-
-        .app-root {
-          --bg: #12141a;
-          --panel: #1a1d25;
-          --panel-raised: #21252f;
-          --border: #2b303c;
-          --text: #edeff3;
-          --muted: #8b93a3;
-          --accent: #4fd8c4;
-          --accent-dim: #2c584f;
-          --warm: #f2a65a;
-          --violet: #a78bfa;
-          --blue: #5b9dff;
-          --green: #4ade80;
-          --danger: #e5615a;
-          --mono: 'IBM Plex Mono', ui-monospace, monospace;
-          --display: 'Space Grotesk', ui-sans-serif, sans-serif;
-          --body: 'Inter', ui-sans-serif, sans-serif;
-          background: var(--bg);
-          color: var(--text);
-          font-family: var(--body);
-          min-height: 100vh;
-          width: 100%;
-        }
-        .app-root * { box-sizing: border-box; }
-        .app-root ::selection { background: var(--accent-dim); color: var(--text); }
-        .display { font-family: var(--display); letter-spacing: -0.01em; }
-        .mono { font-family: var(--mono); }
-        .btn {
-          display: inline-flex; align-items: center; gap: 6px;
-          background: var(--panel-raised); color: var(--text);
-          border: 1px solid var(--border); border-radius: 8px;
-          padding: 8px 14px; font-size: 13px; font-weight: 500;
-          cursor: pointer; transition: border-color .15s, background .15s;
-          font-family: var(--body);
-        }
-        .btn:hover { border-color: var(--accent); }
-        .btn:active { transform: translateY(1px); }
-        .btn-accent { background: var(--accent); color: #0b1210; border-color: var(--accent); font-weight: 600; }
-        .btn-accent:hover { opacity: .9; border-color: var(--accent); }
-        .btn-danger { color: var(--danger); }
-        .btn-danger:hover { border-color: var(--danger); }
-        .btn-ghost { background: transparent; border-color: transparent; }
-        .btn-ghost:hover { background: var(--panel-raised); border-color: var(--border); }
-        .icon-btn {
-          display: inline-flex; align-items: center; justify-content: center;
-          width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent;
-          background: transparent; color: var(--muted); cursor: pointer;
-        }
-        .icon-btn:hover { background: var(--panel-raised); color: var(--text); border-color: var(--border); }
-        input.field, textarea.field {
-          background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-          color: var(--text); padding: 8px 10px; font-size: 13px; font-family: var(--body);
-          outline: none; width: 100%;
-        }
-        input.field:focus, textarea.field:focus { border-color: var(--accent); }
-        .card {
-          background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-        }
-        .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-        .scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
-        .scrollbar::-webkit-scrollbar-track { background: transparent; }
-        a.plain { color: var(--accent); text-decoration: none; }
-        .col-resizer:hover .resize-line, .col-resizer:active .resize-line { background: var(--accent); width: 2px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
-
+    <>
       {session === undefined ? (
         <LoadingScreen label="Checking your session…" />
       ) : session === null ? (
@@ -1008,6 +959,251 @@ function App() {
           )}
         </>
       )}
+    </>
+  );
+}
+
+function GlobalStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+      .app-root {
+        --bg: #12141a;
+        --panel: #1a1d25;
+        --panel-raised: #21252f;
+        --border: #2b303c;
+        --text: #edeff3;
+        --muted: #8b93a3;
+        --accent: #4fd8c4;
+        --accent-dim: #2c584f;
+        --warm: #f2a65a;
+        --violet: #a78bfa;
+        --blue: #5b9dff;
+        --green: #4ade80;
+        --danger: #e5615a;
+        --mono: 'IBM Plex Mono', ui-monospace, monospace;
+        --display: 'Space Grotesk', ui-sans-serif, sans-serif;
+        --body: 'Inter', ui-sans-serif, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--body);
+        min-height: 100vh;
+        width: 100%;
+      }
+      .app-root * { box-sizing: border-box; }
+      .app-root ::selection { background: var(--accent-dim); color: var(--text); }
+      .display { font-family: var(--display); letter-spacing: -0.01em; }
+      .mono { font-family: var(--mono); }
+      .btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--panel-raised); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px;
+        padding: 8px 14px; font-size: 13px; font-weight: 500;
+        cursor: pointer; transition: border-color .15s, background .15s;
+        font-family: var(--body);
+      }
+      .btn:hover { border-color: var(--accent); }
+      .btn:active { transform: translateY(1px); }
+      .btn-accent { background: var(--accent); color: #0b1210; border-color: var(--accent); font-weight: 600; }
+      .btn-accent:hover { opacity: .9; border-color: var(--accent); }
+      .btn-danger { color: var(--danger); }
+      .btn-danger:hover { border-color: var(--danger); }
+      .btn-ghost { background: transparent; border-color: transparent; }
+      .btn-ghost:hover { background: var(--panel-raised); border-color: var(--border); }
+      .icon-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent;
+        background: transparent; color: var(--muted); cursor: pointer;
+      }
+      .icon-btn:hover { background: var(--panel-raised); color: var(--text); border-color: var(--border); }
+      input.field, textarea.field {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+        color: var(--text); padding: 8px 10px; font-size: 13px; font-family: var(--body);
+        outline: none; width: 100%;
+      }
+      input.field:focus, textarea.field:focus { border-color: var(--accent); }
+      .card {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      }
+      .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+      .scrollbar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+      .scrollbar::-webkit-scrollbar-track { background: transparent; }
+      a.plain { color: var(--accent); text-decoration: none; }
+      .col-resizer:hover .resize-line, .col-resizer:active .resize-line { background: var(--accent); width: 2px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    `}</style>
+  );
+}
+
+/* ================= PUBLIC SHARE VIEW ================= */
+// Rendered when someone opens a /v/{videoId} share link. No login required,
+// and no way to reach anything else in the app from here — read-only, scoped
+// to exactly the one video the link points to.
+
+function PublicVideoView({ videoId }) {
+  const [status, setStatus] = useState("loading"); // loading | not_found | locked | ready | error
+  const [video, setVideo] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const videoRef = useRef(null);
+
+  const load = async (password) => {
+    try {
+      const data = await fetchSharedVideo(videoId, password);
+      if (!data.found) { setStatus("not_found"); return; }
+      if (data.locked) {
+        setStatus("locked");
+        if (password) setPasswordError("That password isn't right.");
+        return;
+      }
+      setVideo(data.video);
+      setNotes(data.notes || []);
+      setStatus("ready");
+    } catch (err) {
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { load(null); }, [videoId]);
+
+  const submitPassword = async (e) => {
+    e.preventDefault();
+    setChecking(true);
+    setPasswordError("");
+    await load(passwordInput);
+    setChecking(false);
+  };
+
+  const seekTo = (t) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = t;
+      videoRef.current.play();
+    }
+  };
+
+  if (status === "loading") {
+    return <LoadingScreen label="Loading shared video…" />;
+  }
+
+  if (status === "not_found") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div className="card" style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
+          <p className="display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>This link isn't available</p>
+          <p style={{ fontSize: 13, color: "var(--muted)" }}>The video may have been removed, or this link isn't valid.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div className="card" style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
+          <p className="display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Couldn't load this video</p>
+          <p style={{ fontSize: 13, color: "var(--muted)" }}>Check your connection and try refreshing the page.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "locked") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <form onSubmit={submitPassword} className="card" style={{ width: "100%", maxWidth: 360, padding: 32 }}>
+          <p className="display" style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 8 }}>
+            <Icon name="lock" size={16} color="var(--accent)" /> Password protected
+          </p>
+          <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18 }}>Enter the password to view this video.</p>
+          <input
+            autoFocus
+            type="password"
+            className="field"
+            style={{ marginBottom: 12 }}
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+          />
+          {passwordError && <p style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 12 }}>{passwordError}</p>}
+          <button type="submit" className="btn btn-accent" disabled={checking} style={{ width: "100%", justifyContent: "center" }}>
+            {checking ? "Checking…" : "View video"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // status === "ready"
+  const videoUrl = publicStorageUrl("videos", video.storage_path);
+  const sortedNotes = [...notes].sort((a, b) => a.time - b.time);
+
+  return (
+    <div style={{ minHeight: "100vh", padding: "24px 20px" }}>
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+          <div style={{ width: 24, height: 24, borderRadius: 6, background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Icon name="play" size={12} color="#0b1210" />
+          </div>
+          <p className="display" style={{ fontSize: 14, fontWeight: 700 }}>Reel Notes</p>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>— shared video</span>
+        </div>
+
+        <p className="display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{video.name}</p>
+
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 520px", minWidth: 280 }}>
+            <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
+              <video ref={videoRef} src={videoUrl} controls playsInline style={{ width: "100%", maxHeight: "64vh", display: "block" }} />
+            </div>
+          </div>
+
+          <div style={{ flex: "1 1 320px", minWidth: 280, maxWidth: 400 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Notes ({sortedNotes.length})</p>
+            {sortedNotes.length === 0 ? (
+              <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "64vh", overflowY: "auto", paddingRight: 4 }} className="scrollbar">
+                {sortedNotes.map((n) => (
+                  <div key={n.id} className="card" style={{ padding: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <button
+                        className="mono"
+                        onClick={() => seekTo(n.time)}
+                        style={{
+                          background: "var(--panel-raised)", border: "1px solid var(--border)", color: "var(--accent)",
+                          borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer",
+                        }}
+                      >
+                        {formatTime(n.time)}{n.end_time != null ? `–${formatTime(n.end_time)}` : ""}
+                      </button>
+                    </div>
+                    {n.author_name && <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>{n.author_name}</p>}
+                    {n.drawing_path && (
+                      <img
+                        src={publicStorageUrl("drawings", n.drawing_path)}
+                        style={{ width: "100%", borderRadius: 8, marginTop: 8, background: "#000", objectFit: "contain" }}
+                      />
+                    )}
+                    {n.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>{n.text}</p>}
+                    {n.replies && n.replies.length > 0 && (
+                      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, paddingLeft: 12, borderLeft: "2px solid var(--border)" }}>
+                        {n.replies.map((r) => (
+                          <div key={r.id}>
+                            {r.author_name && <p style={{ fontSize: 10.5, color: "var(--muted)", opacity: 0.8, marginBottom: 2 }}>{r.author_name}</p>}
+                            <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{r.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3430,7 +3626,7 @@ function ShareModal({ video, updateVideo, onClose }) {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedBoth, setCopiedBoth] = useState(false);
 
-  const link = `https://reelnotes.app/v/${video.id}`;
+  const link = `${window.location.origin}/v/${video.id}`;
 
   const generate = () => {
     const p = makePassword();
@@ -3593,8 +3789,18 @@ function Toggle({ checked, onChange }) {
   );
 }
 
+function Root() {
+  const match = window.location.pathname.match(/^\/v\/([0-9a-fA-F-]{36})\/?$/);
+  return (
+    <div className="app-root">
+      <GlobalStyles />
+      {match ? <PublicVideoView videoId={match[1]} /> : <App />}
+    </div>
+  );
+}
+
 const rootEl = document.getElementById("root");
-ReactDOM.createRoot(rootEl).render(<App />);
+ReactDOM.createRoot(rootEl).render(<Root />);
 </script>
 </body>
 </html>
