@@ -21,23 +21,32 @@
 <div id="root">
   <div id="boot-msg">Loading Reel Notes…</div>
   <div id="boot-error">
-    <div style="max-width:360px;margin:0 auto;">
+    <div style="max-width:520px;margin:0 auto;">
       <p style="color:#edeff3;font-weight:600;margin-bottom:6px;">Couldn't load Reel Notes</p>
-      <p>This app loads React from a CDN the first time it opens, so it needs an internet connection once. Reconnect and refresh this page to try again.</p>
+      <p id="boot-error-detail">This app loads React from a CDN the first time it opens, so it needs an internet connection once. Reconnect and refresh this page to try again.</p>
     </div>
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.1.0/umd/react.production.min.js" onerror="showBootError()"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.1.0/umd/react-dom.production.min.js" onerror="showBootError()"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js" onerror="showBootError()"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react/18.1.0/umd/react.production.min.js" onerror="showBootError()"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.1.0/umd/react-dom.production.min.js" onerror="showBootError()"></script>
+<script crossorigin="anonymous" src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.22.20/babel.min.js" onerror="showBootError()"></script>
 <script>
-  function showBootError() {
+  function showBootError(detail) {
     var m = document.getElementById('boot-msg');
     var e = document.getElementById('boot-error');
+    var d = document.getElementById('boot-error-detail');
     if (m) m.style.display = 'none';
     if (e) e.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#8b93a3;font:14px -apple-system,Inter,sans-serif;text-align:center;padding:24px;';
+    if (d && detail) d.textContent = detail;
   }
+  // catches anything Babel/React themselves fail on (e.g. a real syntax error
+  // in the app's own code) and shows the actual message instead of a silent hang
+  window.addEventListener('error', function (event) {
+    var msg = event && event.message ? event.message : 'Unknown error';
+    var loc = event && event.filename ? ' (' + event.filename.split('/').pop() + ':' + event.lineno + ':' + event.colno + ')' : '';
+    showBootError('App error: ' + msg + loc);
+  });
 </script>
 
 <script type="text/babel" data-presets="react">
