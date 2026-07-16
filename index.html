@@ -115,32 +115,6 @@ function formatTime(sec = 0) {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-// Turns any http(s):// or www. links inside a block of text into clickable
-// links that open in a new tab, leaving everything else as plain text.
-const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s<]+[^\s<.,:;"')\]!?])/gi;
-function linkifyText(text) {
-  if (!text) return text;
-  const parts = text.split(URL_PATTERN);
-  return parts.map((part, i) => {
-    if (/^(?:https?:\/\/|www\.)/i.test(part)) {
-      const href = part.startsWith("http") ? part : `https://${part}`;
-      return (
-        <a
-          key={i}
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          style={{ color: "var(--accent)", textDecoration: "underline", wordBreak: "break-all" }}
-        >
-          {part}
-        </a>
-      );
-    }
-    return part;
-  });
-}
-
 // Parses "MM:SS" or "HH:MM:SS" (or a bare number of seconds) back into seconds.
 // Returns null if the input isn't a valid timecode.
 function parseTimeToSeconds(str) {
@@ -3333,7 +3307,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
               style={{ width: "100%", maxHeight: 220, objectFit: "contain", background: "#000", borderRadius: 8, border: "1px solid var(--border)", marginTop: 8, display: "block" }}
             />
           )}
-          {note.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>{linkifyText(note.text)}</p>}
+          {note.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5 }}>{note.text}</p>}
         </>
       )}
 
@@ -3344,7 +3318,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
               <div>
                 {r.authorName && <p style={{ fontSize: 10.5, color: "var(--muted)", opacity: 0.8, marginBottom: 2 }}>{r.authorName}</p>}
-                <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{linkifyText(r.text)}</p>
+                <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>{r.text}</p>
               </div>
               <button className="icon-btn" style={{ width: 22, height: 22, flexShrink: 0 }} onClick={() => onDeleteReply(r.id)}><Icon name="x" size={12} /></button>
             </div>
