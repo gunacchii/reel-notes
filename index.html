@@ -1048,7 +1048,13 @@ function PublicVideoView({ videoId }) {
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [checking, setChecking] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [activeNoteId, setActiveNoteId] = useState(null);
   const videoRef = useRef(null);
+  const scrubRef = useRef(null);
+  const noteRefs = useRef({});
 
   const load = async (password) => {
     try {
@@ -1077,11 +1083,31 @@ function PublicVideoView({ videoId }) {
     setChecking(false);
   };
 
-  const seekTo = (t) => {
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) videoRef.current.play(); else videoRef.current.pause();
+  };
+
+  // seeks the video and, when jumping to a specific note (via a scrubber mark
+  // or the note's own timecode button), highlights that note in the list and
+  // scrolls it into view
+  const seekTo = (t, noteId) => {
     if (videoRef.current) {
       videoRef.current.currentTime = t;
       videoRef.current.play();
     }
+    if (noteId) {
+      setActiveNoteId(noteId);
+      const el = noteRefs.current[noteId];
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  };
+
+  const handleScrubClick = (e) => {
+    if (!scrubRef.current || !duration) return;
+    const rect = scrubRef.current.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    seekTo(pct * duration);
   };
 
   if (status === "loading") {
@@ -1155,7 +1181,70 @@ function PublicVideoView({ videoId }) {
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 520px", minWidth: 280 }}>
             <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
-              <video ref={videoRef} src={videoUrl} controls playsInline style={{ width: "100%", maxHeight: "64vh", display: "block" }} />
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                playsInline
+                style={{ width: "100%", maxHeight: "60vh", display: "block" }}
+                onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
+                onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onClick={togglePlay}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
+              <button
+                className="icon-btn"
+                style={{ width: 34, height: 34, background: "var(--panel-raised)", borderColor: "var(--border)" }}
+                onClick={togglePlay}
+              >
+                {playing ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} />}
+              </button>
+              <span className="mono" style={{ fontSize: 12, color: "var(--muted)", minWidth: 92 }}>
+                {formatTime(current)} / {formatTime(duration)}
+              </span>
+              <div
+                ref={scrubRef}
+                onClick={handleScrubClick}
+                style={{ position: "relative", flex: 1, height: 8, background: "var(--panel-raised)", borderRadius: 6, cursor: "pointer", userSelect: "none" }}
+              >
+                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${duration ? (current / duration) * 100 : 0}%`, background: "var(--accent-dim)", borderRadius: 6 }} />
+                <div style={{ position: "absolute", left: `${duration ? (current / duration) * 100 : 0}%`, top: "50%", transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", background: "var(--accent)" }} />
+
+                {/* range-note bands */}
+                {sortedNotes.filter((n) => n.end_time != null).map((n) => (
+                  <div
+                    key={n.id + "-band"}
+                    title={n.text || "Drawing"}
+                    onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
+                    style={{
+                      position: "absolute", top: "50%", transform: "translateY(-50%)",
+                      left: `${duration ? (n.time / duration) * 100 : 0}%`,
+                      width: `${duration ? ((n.end_time - n.time) / duration) * 100 : 0}%`,
+                      height: 14, background: n.id === activeNoteId ? "rgba(79,216,196,0.4)" : "rgba(242,166,90,0.35)",
+                      border: `1px solid ${n.id === activeNoteId ? "var(--accent)" : "var(--warm)"}`,
+                      borderRadius: 4, cursor: "pointer",
+                    }}
+                  />
+                ))}
+
+                {/* point-note ticks */}
+                {sortedNotes.filter((n) => n.end_time == null).map((n) => (
+                  <div
+                    key={n.id}
+                    title={n.text || "Drawing"}
+                    onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
+                    style={{
+                      position: "absolute", left: `${duration ? (n.time / duration) * 100 : 0}%`, top: "50%",
+                      transform: "translate(-50%,-50%)", width: n.id === activeNoteId ? 5 : 3, height: n.id === activeNoteId ? 20 : 16,
+                      background: n.id === activeNoteId ? "var(--accent)" : "var(--warm)",
+                      borderRadius: 2, cursor: "pointer",
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1166,11 +1255,20 @@ function PublicVideoView({ videoId }) {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "64vh", overflowY: "auto", paddingRight: 4 }} className="scrollbar">
                 {sortedNotes.map((n) => (
-                  <div key={n.id} className="card" style={{ padding: 12 }}>
+                  <div
+                    key={n.id}
+                    ref={(el) => { noteRefs.current[n.id] = el; }}
+                    className="card"
+                    style={{
+                      padding: 12,
+                      borderColor: n.id === activeNoteId ? "var(--accent)" : "var(--border)",
+                      outline: n.id === activeNoteId ? "1px solid var(--accent)" : "none",
+                    }}
+                  >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <button
                         className="mono"
-                        onClick={() => seekTo(n.time)}
+                        onClick={() => seekTo(n.time, n.id)}
                         style={{
                           background: "var(--panel-raised)", border: "1px solid var(--border)", color: "var(--accent)",
                           borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer",
@@ -2942,6 +3040,8 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   const [dragPreview, setDragPreview] = useState(null); // { startPct, endPct } while actively dragging
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(video.name);
+  const [activeNoteId, setActiveNoteId] = useState(null);
+  const noteRefs = useRef({});
   const composerRef = useRef(null);
 
   useEffect(() => {
@@ -3064,9 +3164,14 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
     setDrawMode(false);
   };
 
-  const seekTo = (t) => {
+  const seekTo = (t, noteId) => {
     if (videoRef.current) videoRef.current.currentTime = t;
     setCurrent(t);
+    if (noteId) {
+      setActiveNoteId(noteId);
+      const el = noteRefs.current[noteId];
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   };
 
   const pctFromClientX = (clientX) => {
@@ -3251,7 +3356,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
                   key={n.id + "-band"}
                   title={`${formatTime(n.time)}–${formatTime(n.endTime)} — ${n.text || "Drawing"}`}
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); seekTo(n.time); }}
+                  onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
                   style={{
                     position: "absolute", top: "50%", transform: "translateY(-50%)",
                     left: `${duration ? (n.time / duration) * 100 : 0}%`,
@@ -3268,7 +3373,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
                   key={n.id}
                   title={`${formatTime(n.time)} — ${n.text || "Drawing"}`}
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); seekTo(n.time); }}
+                  onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
                   style={{
                     position: "absolute", left: `${duration ? (n.time / duration) * 100 : 0}%`, top: "50%",
                     transform: "translate(-50%,-50%)", width: 3, height: 16, background: "var(--warm)",
@@ -3405,16 +3510,18 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {sortedNotes.map((n) => (
-                <NoteCard
-                  key={n.id}
-                  note={n}
-                  onSeek={() => seekTo(n.time)}
-                  onEdit={(text) => editNote(video.id, n.id, text)}
-                  onEditTime={(time, endTime) => editNoteTime(video.id, n.id, time, endTime)}
-                  onDelete={() => deleteNote(video.id, n.id)}
-                  onReply={(text) => addReply(video.id, n.id, text)}
-                  onDeleteReply={(rid) => deleteReply(video.id, n.id, rid)}
-                />
+                <div key={n.id} ref={(el) => { noteRefs.current[n.id] = el; }}>
+                  <NoteCard
+                    note={n}
+                    onSeek={() => seekTo(n.time, n.id)}
+                    onEdit={(text) => editNote(video.id, n.id, text)}
+                    onEditTime={(time, endTime) => editNoteTime(video.id, n.id, time, endTime)}
+                    onDelete={() => deleteNote(video.id, n.id)}
+                    onReply={(text) => addReply(video.id, n.id, text)}
+                    onDeleteReply={(rid) => deleteReply(video.id, n.id, rid)}
+                    isActive={n.id === activeNoteId}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -3426,7 +3533,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   );
 }
 
-function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDeleteReply }) {
+function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDeleteReply, isActive }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.text);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -3466,7 +3573,14 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
   };
 
   return (
-    <div className="card" style={{ padding: 12 }}>
+    <div
+      className="card"
+      style={{
+        padding: 12,
+        borderColor: isActive ? "var(--accent)" : "var(--border)",
+        outline: isActive ? "1px solid var(--accent)" : "none",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         {editingTime ? (
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
