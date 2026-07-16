@@ -913,51 +913,62 @@ function App() {
           </div>
         </div>
       ) : (
-        <>
-          {screen === "home" && (
-            <HomeScreen
-              folders={folders}
-              videos={videos}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              currentFolderId={currentFolderId}
-              setCurrentFolderId={setCurrentFolderId}
-              query={query}
-              setQuery={setQuery}
-              createFolder={createFolder}
-              renameFolder={renameFolder}
-              archiveFolder={archiveFolder}
-              deleteFolderRecursive={deleteFolderRecursive}
-              moveFolderToFolder={moveFolderToFolder}
-              reorderFolders={reorderFolders}
-              addVideoFile={addVideoFile}
-              deleteVideo={deleteVideo}
-              archiveVideo={archiveVideo}
-              renameVideo={renameVideo}
-              setVideoReviewStatus={setVideoReviewStatus}
-              moveVideoToFolder={moveVideoToFolder}
-              reorderVideos={reorderVideos}
-              openVideo={openVideo}
-              profile={profile}
-              onSignOut={signOut}
-            />
-          )}
+        <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+          <TopNav
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            setCurrentFolderId={setCurrentFolderId}
+            setQuery={setQuery}
+            profile={profile}
+            onSignOut={signOut}
+            onGoHome={goHome}
+          />
+          <div style={{ flex: 1, overflow: "auto", minHeight: 0 }} className="scrollbar">
+            {screen === "home" && (
+              <HomeScreen
+                folders={folders}
+                videos={videos}
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                currentFolderId={currentFolderId}
+                setCurrentFolderId={setCurrentFolderId}
+                query={query}
+                setQuery={setQuery}
+                createFolder={createFolder}
+                renameFolder={renameFolder}
+                archiveFolder={archiveFolder}
+                deleteFolderRecursive={deleteFolderRecursive}
+                moveFolderToFolder={moveFolderToFolder}
+                reorderFolders={reorderFolders}
+                addVideoFile={addVideoFile}
+                deleteVideo={deleteVideo}
+                archiveVideo={archiveVideo}
+                renameVideo={renameVideo}
+                setVideoReviewStatus={setVideoReviewStatus}
+                moveVideoToFolder={moveVideoToFolder}
+                reorderVideos={reorderVideos}
+                openVideo={openVideo}
+                profile={profile}
+                onSignOut={signOut}
+              />
+            )}
 
-          {screen === "video" && currentVideo && (
-            <VideoScreen
-              video={currentVideo}
-              onBack={goHome}
-              updateVideo={updateVideo}
-              setVideoReviewStatus={setVideoReviewStatus}
-              addNote={addNote}
-              editNote={editNote}
-              editNoteTime={editNoteTime}
-              deleteNote={deleteNote}
-              addReply={addReply}
-              deleteReply={deleteReply}
-            />
-          )}
-        </>
+            {screen === "video" && currentVideo && (
+              <VideoScreen
+                video={currentVideo}
+                onBack={goHome}
+                updateVideo={updateVideo}
+                setVideoReviewStatus={setVideoReviewStatus}
+                addNote={addNote}
+                editNote={editNote}
+                editNoteTime={editNoteTime}
+                deleteNote={deleteNote}
+                addReply={addReply}
+                deleteReply={deleteReply}
+              />
+            )}
+          </div>
+        </div>
       )}
     </>
   );
@@ -1178,8 +1189,8 @@ function PublicVideoView({ videoId }) {
 
         <p className="display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{video.name}</p>
 
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 520px", minWidth: 280 }}>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "stretch" }}>
+          <div style={{ flex: "1 1 520px", minWidth: 280, display: "flex", flexDirection: "column" }}>
             <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
               <video
                 ref={videoRef}
@@ -1248,12 +1259,12 @@ function PublicVideoView({ videoId }) {
             </div>
           </div>
 
-          <div style={{ flex: "1 1 320px", minWidth: 280, maxWidth: 400 }}>
+          <div style={{ flex: "1 1 320px", minWidth: 280, maxWidth: 400, display: "flex", flexDirection: "column" }}>
             <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Notes ({sortedNotes.length})</p>
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: "64vh", overflowY: "auto", paddingRight: 4 }} className="scrollbar">
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }} className="scrollbar">
                 {sortedNotes.map((n) => (
                   <div
                     key={n.id}
@@ -1307,6 +1318,50 @@ function PublicVideoView({ videoId }) {
 }
 
 /* ================= HOME ================= */
+
+function TopNav({ activeTab, setActiveTab, setCurrentFolderId, setQuery, profile, onSignOut, onGoHome }) {
+  const go = (tab, extra) => {
+    onGoHome();
+    setActiveTab(tab);
+    setQuery("");
+    if (extra) extra();
+  };
+  return (
+    <div style={{ borderBottom: "1px solid var(--border)", background: "var(--panel)", flexShrink: 0 }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <p className="display" style={{ fontSize: 18, fontWeight: 700, margin: 0, cursor: "pointer" }} onClick={() => go("home")}>Reel Notes</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+          <NavTab
+            active={activeTab === "home"}
+            onClick={() => go("home")}
+            icon={<Icon name="home" size={15} />}
+            label="Home"
+          />
+          <NavTab
+            active={activeTab === "dashboard"}
+            onClick={() => go("dashboard", () => setCurrentFolderId(ROOT_ID))}
+            icon={<Icon name="grid" size={15} />}
+            label="All Projects"
+          />
+          <NavTab
+            active={activeTab === "archive"}
+            onClick={() => go("archive")}
+            icon={<Icon name="archive" size={15} />}
+            label="Archive"
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 16, borderLeft: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 12.5, color: "var(--muted)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {profile?.display_name || "Signed in"}
+            </span>
+            <button className="icon-btn" onClick={onSignOut} title="Sign out">
+              <Icon name="log-out" size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function HomeScreen({
   folders, videos, activeTab, setActiveTab, currentFolderId, setCurrentFolderId,
@@ -1650,40 +1705,7 @@ function HomeScreen({
           </button>
         </div>
       )}
-      {/* top nav bar */}
-      <div style={{ borderBottom: "1px solid var(--border)", background: "var(--panel)" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <p className="display" style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Reel Notes</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
-            <NavTab
-              active={activeTab === "home"}
-              onClick={() => { setActiveTab("home"); setQuery(""); }}
-              icon={<Icon name="home" size={15} />}
-              label="Home"
-            />
-            <NavTab
-              active={activeTab === "dashboard"}
-              onClick={() => { setActiveTab("dashboard"); setCurrentFolderId(ROOT_ID); setQuery(""); }}
-              icon={<Icon name="grid" size={15} />}
-              label="All Projects"
-            />
-            <NavTab
-              active={activeTab === "archive"}
-              onClick={() => { setActiveTab("archive"); setQuery(""); }}
-              icon={<Icon name="archive" size={15} />}
-              label="Archive"
-            />
-            <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 16, borderLeft: "1px solid var(--border)" }}>
-              <span style={{ fontSize: 12.5, color: "var(--muted)", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {profile?.display_name || "Signed in"}
-              </span>
-              <button className="icon-btn" onClick={onSignOut} title="Sign out">
-                <Icon name="log-out" size={15} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* top nav bar rendered persistently by App — not here */}
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 24px 64px" }}>
         {/* search bar — searches across the whole app */}
@@ -3244,7 +3266,7 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   const sortedNotes = [...video.notes].sort((a, b) => a.time - b.time);
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100%" }}>
+    <div style={{ display: "flex", height: "100%", minHeight: "100%", width: "100%" }}>
       {/* main column */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "20px 24px", overflowY: "auto" }} className="scrollbar">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
