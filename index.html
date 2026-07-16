@@ -1122,7 +1122,10 @@ function PublicVideoView({ videoId }) {
   const seekTo = (t, noteId) => {
     if (videoRef.current) {
       videoRef.current.currentTime = t;
-      videoRef.current.play();
+      // jumping to a specific note pauses so you can actually read it without
+      // the video racing ahead — plain scrubbing elsewhere still resumes play
+      if (noteId) videoRef.current.pause();
+      else videoRef.current.play();
     }
     if (noteId) {
       setActiveNoteId(noteId);
@@ -3217,7 +3220,12 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
   };
 
   const seekTo = (t, noteId) => {
-    if (videoRef.current) videoRef.current.currentTime = t;
+    if (videoRef.current) {
+      videoRef.current.currentTime = t;
+      // jumping to a specific note pauses so you can actually read it without
+      // the video racing ahead — plain scrubbing/dragging elsewhere is unaffected
+      if (noteId) videoRef.current.pause();
+    }
     setCurrent(t);
     if (noteId) {
       setActiveNoteId(noteId);
@@ -3250,8 +3258,16 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
 
     const dur = durationNow();
     if (movedPx < 6) {
-      // a simple click — just seek
-      seekTo(startPct * dur);
+      // a simple click
+      const clickTime = startPct * dur;
+      seekTo(clickTime);
+      // if a note is already being drafted (not saved yet), clicking elsewhere
+      // on the bar moves it here instead of just seeking playback — lets you
+      // change your mind about where the note should land before saving
+      if (composerTime !== null && !drawMode) {
+        setComposerTime(clickTime);
+        setComposerEndTime(null);
+      }
     } else {
       const t1 = startPct * dur;
       const t2 = endPct * dur;
