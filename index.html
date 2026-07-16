@@ -1189,7 +1189,7 @@ function PublicVideoView({ videoId }) {
 
         <p className="display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{video.name}</p>
 
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "stretch" }}>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "stretch", height: "calc(100vh - 190px)", minHeight: 420 }}>
           <div style={{ flex: "1 1 520px", minWidth: 280, display: "flex", flexDirection: "column" }}>
             <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
               <video
