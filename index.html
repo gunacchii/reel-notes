@@ -1310,10 +1310,7 @@ function PublicVideoView({ videoId }) {
         <div style={{ maxWidth: 1500, margin: "0 auto", height: "100%" }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start", height: "100%" }}>
             <div style={{ flex: "1 1 640px", minWidth: 280, display: "flex", flexDirection: "column" }}>
-              <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>{video.name}</p>
-              <div style={{ marginBottom: 16 }}>
-                <StatusBadge status={video.review_status} onChange={changeStatus} compact />
-              </div>
+              <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 16px" }}>{video.name}</p>
               <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
                 <video
                 ref={videoRef}
@@ -1383,7 +1380,10 @@ function PublicVideoView({ videoId }) {
           </div>
 
           <div style={{ flex: "1 1 340px", minWidth: 300, maxWidth: 420, display: "flex", flexDirection: "column" }}>
-            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 18 }}>Notes ({sortedNotes.length})</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+              <p style={{ fontSize: 13, fontWeight: 600 }}>Notes ({sortedNotes.length})</p>
+              <StatusBadge status={video.review_status} onChange={changeStatus} compact />
+            </div>
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
             ) : (
@@ -1417,10 +1417,12 @@ function PublicVideoView({ videoId }) {
                     </div>
                     {n.author_name && <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>{n.author_name}</p>}
                     {n.drawing_path && (
-                      <img
-                        src={publicStorageUrl("drawings", n.drawing_path)}
-                        style={{ width: "100%", borderRadius: 8, marginTop: 8, background: "#000", objectFit: "contain" }}
-                      />
+                      <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8, marginTop: 8, background: "#000", overflow: "hidden" }}>
+                        <img
+                          src={publicStorageUrl("drawings", n.drawing_path)}
+                          style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        />
+                      </div>
                     )}
                     {n.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{n.text}</p>}
                     {n.replies && n.replies.length > 0 && (
@@ -3442,14 +3444,15 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // double-clicking the bar drops (or moves) the pending note mark without
-  // forcing the answer box open and without touching playback — lets you flag
-  // a moment while still watching, or nudge an already-open draft elsewhere
+  // double-clicking the bar drops (or moves) the pending note mark and opens
+  // the answer box automatically — doesn't force a pause, so if the video was
+  // playing it keeps going while you write
   const handleScrubDoubleClick = (e) => {
     if (drawMode) return;
     const pct = pctFromClientX(e.clientX);
     setComposerTime(pct * durationNow());
     setComposerEndTime(null);
+    setComposerOpen(true);
   };
 
   const handleScrubMouseDown = (e) => {
@@ -3708,7 +3711,9 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
             </div>
             {composerDrawing && (
               <div style={{ position: "relative", marginBottom: 8 }}>
-                <img src={composerDrawing} alt="Drawing" style={{ width: "100%", maxHeight: 200, objectFit: "contain", background: "#000", borderRadius: 8, border: "1px solid var(--border)", display: "block" }} />
+                <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8, border: "1px solid var(--border)", background: "#000", overflow: "hidden" }}>
+                  <img src={composerDrawing} alt="Drawing" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
+                </div>
                 <button
                   className="icon-btn"
                   style={{ position: "absolute", top: 6, right: 6, background: "rgba(0,0,0,0.6)", color: "#fff" }}
@@ -3892,11 +3897,13 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
       ) : (
         <>
           {note.drawing && (
-            <img
-              src={note.drawing}
-              alt="Drawing on frame"
-              style={{ width: "100%", maxHeight: 220, objectFit: "contain", background: "#000", borderRadius: 8, border: "1px solid var(--border)", marginTop: 8, display: "block" }}
-            />
+            <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8, border: "1px solid var(--border)", marginTop: 8, background: "#000", overflow: "hidden" }}>
+              <img
+                src={note.drawing}
+                alt="Drawing on frame"
+                style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+              />
+            </div>
           )}
           {note.text && <p style={{ fontSize: 13, marginTop: 8, lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{linkifyText(note.text)}</p>}
         </>
