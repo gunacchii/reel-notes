@@ -1195,21 +1195,21 @@ function PublicVideoView({ videoId }) {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ padding: "24px 20px 16px", flexShrink: 0, maxWidth: 1500, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+      <div style={{ padding: "24px 20px 0", flexShrink: 0, maxWidth: 1500, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <div style={{ width: 24, height: 24, borderRadius: 6, background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Icon name="play" size={12} color="#0b1210" />
           </div>
           <p className="display" style={{ fontSize: 14, fontWeight: 700 }}>Reel Notes</p>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>— shared video</span>
         </div>
-        <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{video.name}</p>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, padding: "0 20px 24px", boxSizing: "border-box" }}>
+      <div style={{ flex: 1, minHeight: 0, padding: "12px 20px 24px", boxSizing: "border-box" }}>
         <div style={{ maxWidth: 1500, margin: "0 auto", height: "100%" }}>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "stretch", height: "100%" }}>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start", height: "100%" }}>
             <div style={{ flex: "1 1 520px", minWidth: 280, display: "flex", flexDirection: "column" }}>
+              <p className="display" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 16px" }}>{video.name}</p>
               <div style={{ background: "#000", borderRadius: 12, overflow: "hidden" }}>
                 <video
                 ref={videoRef}
@@ -1279,7 +1279,7 @@ function PublicVideoView({ videoId }) {
           </div>
 
           <div style={{ flex: "1 1 380px", minWidth: 320, maxWidth: 480, display: "flex", flexDirection: "column" }}>
-            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Notes ({sortedNotes.length})</p>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 18 }}>Notes ({sortedNotes.length})</p>
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
             ) : (
