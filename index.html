@@ -1063,9 +1063,26 @@ function PublicVideoView({ videoId }) {
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [activeNoteId, setActiveNoteId] = useState(null);
+  const [notesListMaxHeight, setNotesListMaxHeight] = useState(400);
   const videoRef = useRef(null);
   const scrubRef = useRef(null);
   const noteRefs = useRef({});
+  const notesListWrapRef = useRef(null);
+
+  // measure exactly how much vertical space is actually left below the notes
+  // list's top edge, so it scrolls internally no matter what — sidesteps any
+  // ambiguity from nested flex/percentage heights
+  useEffect(() => {
+    const updateHeight = () => {
+      if (!notesListWrapRef.current) return;
+      const top = notesListWrapRef.current.getBoundingClientRect().top;
+      setNotesListMaxHeight(Math.max(160, window.innerHeight - top - 24));
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    const t = setTimeout(updateHeight, 50); // once layout settles after first paint
+    return () => { window.removeEventListener("resize", updateHeight); clearTimeout(t); };
+  }, [status, notes.length]);
 
   const load = async (password) => {
     try {
@@ -1266,7 +1283,11 @@ function PublicVideoView({ videoId }) {
             {sortedNotes.length === 0 ? (
               <p style={{ fontSize: 13, color: "var(--muted)" }}>No notes on this video yet.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }} className="scrollbar">
+              <div
+                ref={notesListWrapRef}
+                style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: notesListMaxHeight, overflowY: "auto", paddingRight: 4 }}
+                className="scrollbar"
+              >
                 {sortedNotes.map((n) => (
                   <div
                     key={n.id}
