@@ -173,8 +173,9 @@ const REVIEW_STATUS_META = {
   editing: { label: "Video Editing", color: "var(--blue)" },
   on_hold: { label: "On Hold", color: "var(--danger)" },
   complete: { label: "Complete", color: "var(--green)" },
+  archived: { label: "Archived", color: "var(--muted)" },
 };
-const REVIEW_STATUS_ORDER = ["ready_review", "ready_editing", "editing", "on_hold", "complete"];
+const REVIEW_STATUS_ORDER = ["ready_review", "ready_editing", "editing", "on_hold", "complete", "archived"];
 
 // Given the current visual order of ids, moves draggedIds to sit just before targetId
 // and returns the resulting full ordered id list.
@@ -852,11 +853,33 @@ function App() {
     if (patch.locked !== undefined) dbPatch.locked = patch.locked;
     if (patch.password !== undefined) dbPatch.password = patch.password;
     if (patch.reviewStatus !== undefined) dbPatch.review_status = patch.reviewStatus;
+    // reflect the change locally right away — the app doesn't poll for
+    // updates while a video is open (so it doesn't fight with playback), so
+    // without this the change wouldn't show up until you left the screen
+    setVideos((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch, updatedAt: Date.now() } } : prev));
     await db.update("videos", `id=eq.${id}`, dbPatch);
   };
-  const archiveVideo = async (id, archived) => updateVideo(id, { archived });
+  // archiving a video and setting its status to "Archived" are kept in sync
+  // with each other, whichever direction you do it from
+  const archiveVideo = async (id, archived) => {
+    const patch = { archived };
+    if (archived) {
+      patch.reviewStatus = "archived";
+    } else if (videos[id]?.reviewStatus === "archived") {
+      patch.reviewStatus = null; // restoring clears the now-stale "Archived" status
+    }
+    await updateVideo(id, patch);
+  };
   const renameVideo = async (id, name) => { if (name.trim()) await updateVideo(id, { name: name.trim() }); };
-  const setVideoReviewStatus = async (id, reviewStatus) => updateVideo(id, { reviewStatus });
+  const setVideoReviewStatus = async (id, reviewStatus) => {
+    const patch = { reviewStatus };
+    if (reviewStatus === "archived") {
+      patch.archived = true;
+    } else if (videos[id]?.reviewStatus === "archived" && videos[id]?.archived) {
+      patch.archived = false; // moving off "Archived" brings it back into the active list
+    }
+    await updateVideo(id, patch);
+  };
   const moveVideoToFolder = async (id, folderId) => {
     await db.update("videos", `id=eq.${id}`, { folder_id: folderId === ROOT_ID ? null : folderId });
   };
@@ -3607,7 +3630,9 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
                     position: "absolute", top: "50%", transform: "translateY(-50%)",
                     left: `${duration ? (n.time / duration) * 100 : 0}%`,
                     width: `${duration ? ((n.endTime - n.time) / duration) * 100 : 0}%`,
-                    height: 14, background: "rgba(242,166,90,0.35)", border: "1px solid var(--warm)",
+                    height: 14,
+                    background: n.id === activeNoteId ? "rgba(79,216,196,0.4)" : "rgba(242,166,90,0.35)",
+                    border: `1px solid ${n.id === activeNoteId ? "var(--accent)" : "var(--warm)"}`,
                     borderRadius: 4, cursor: "pointer",
                   }}
                 />
@@ -3622,7 +3647,9 @@ function VideoScreen({ video, onBack, updateVideo, setVideoReviewStatus, addNote
                   onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
                   style={{
                     position: "absolute", left: `${duration ? (n.time / duration) * 100 : 0}%`, top: "50%",
-                    transform: "translate(-50%,-50%)", width: 3, height: 16, background: "var(--warm)",
+                    transform: "translate(-50%,-50%)",
+                    width: n.id === activeNoteId ? 5 : 3, height: n.id === activeNoteId ? 20 : 16,
+                    background: n.id === activeNoteId ? "var(--accent)" : "var(--warm)",
                     borderRadius: 2, cursor: "pointer",
                   }}
                 />
