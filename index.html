@@ -1420,8 +1420,10 @@ function PublicVideoView({ videoId }) {
                     key={n.id}
                     ref={(el) => { noteRefs.current[n.id] = el; }}
                     className="card"
+                    onClick={() => seekTo(n.time, n.id)}
                     style={{
                       padding: 12,
+                      cursor: "pointer",
                       borderColor: n.id === activeNoteId ? "var(--accent)" : "var(--border)",
                       outline: n.id === activeNoteId ? "1px solid var(--accent)" : "none",
                     }}
@@ -1429,7 +1431,7 @@ function PublicVideoView({ videoId }) {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <button
                         className="mono"
-                        onClick={() => seekTo(n.time, n.id)}
+                        onClick={(e) => { e.stopPropagation(); seekTo(n.time, n.id); }}
                         style={{
                           background: "var(--panel-raised)", border: "1px solid var(--border)", color: "var(--accent)",
                           borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer",
@@ -1459,7 +1461,7 @@ function PublicVideoView({ videoId }) {
                       </div>
                     )}
                     {replyingNoteId === n.id ? (
-                      <div style={{ marginTop: 10 }}>
+                      <div style={{ marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                         <textarea
                           autoFocus
                           className="field"
@@ -1486,7 +1488,7 @@ function PublicVideoView({ videoId }) {
                       <button
                         className="btn btn-ghost"
                         style={{ fontSize: 11.5, padding: "4px 8px", marginTop: 8, color: "var(--muted)" }}
-                        onClick={() => startReply(n.id)}
+                        onClick={(e) => { e.stopPropagation(); startReply(n.id); }}
                       >
                         <Icon name="corner-down-right" size={12} /> Reply
                       </button>
@@ -3850,15 +3852,17 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
   return (
     <div
       className="card"
+      onClick={onSeek}
       style={{
         padding: 12,
+        cursor: "pointer",
         borderColor: isActive ? "var(--accent)" : "var(--border)",
         outline: isActive ? "1px solid var(--accent)" : "none",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         {editingTime ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }} onClick={(e) => e.stopPropagation()}>
             <input
               autoFocus
               className="field mono"
@@ -3892,14 +3896,14 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
             >
               {note.endTime != null ? `${formatTime(note.time)} – ${formatTime(note.endTime)}` : formatTime(note.time)}
             </button>
-            <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={startEditingTime} title="Edit timecode">
+            <button className="icon-btn" style={{ width: 20, height: 20 }} onClick={(e) => { e.stopPropagation(); startEditingTime(); }} title="Edit timecode">
               <Icon name="pencil" size={11} />
             </button>
           </div>
         )}
         <div style={{ display: "flex", gap: 2 }}>
-          <button className="icon-btn" onClick={() => setEditing((e) => !e)}><Icon name="pencil" size={13} /></button>
-          <button className="icon-btn" onClick={() => setConfirmDelete(true)} title="Delete note"><Icon name="trash" size={13} /></button>
+          <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setEditing((v) => !v); }}><Icon name="pencil" size={13} /></button>
+          <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }} title="Delete note"><Icon name="trash" size={13} /></button>
         </div>
       </div>
       {note.authorName && (
@@ -3907,7 +3911,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
       )}
 
       {editing ? (
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
           <textarea
             autoFocus
             className="field"
@@ -3945,14 +3949,14 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
                 {r.authorName && <p style={{ fontSize: 10.5, color: "var(--muted)", opacity: 0.8, marginBottom: 2 }}>{r.authorName}</p>}
                 <p style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5, overflowWrap: "anywhere", wordBreak: "break-word" }}>{linkifyText(r.text)}</p>
               </div>
-              <button className="icon-btn" style={{ width: 22, height: 22, flexShrink: 0 }} onClick={() => onDeleteReply(r.id)}><Icon name="x" size={12} /></button>
+              <button className="icon-btn" style={{ width: 22, height: 22, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); onDeleteReply(r.id); }}><Icon name="x" size={12} /></button>
             </div>
           ))}
         </div>
       )}
 
       {replying ? (
-        <div style={{ marginTop: 10 }}>
+        <div style={{ marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
           <textarea
             autoFocus
             className="field"
@@ -3971,7 +3975,7 @@ function NoteCard({ note, onSeek, onEdit, onEditTime, onDelete, onReply, onDelet
         <button
           className="btn btn-ghost"
           style={{ marginTop: 8, padding: "4px 8px", fontSize: 12, color: "var(--muted)" }}
-          onClick={() => setReplying(true)}
+          onClick={(e) => { e.stopPropagation(); setReplying(true); }}
         >
           <Icon name="corner-down-right" size={12} /> Reply
         </button>
