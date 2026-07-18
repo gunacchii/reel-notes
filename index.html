@@ -605,7 +605,7 @@ function AuthScreen() {
 
 /* ================= APP ================= */
 
-function App() {
+function App({ sharedVideoId }) {
   const [session, setSessionState] = useState(undefined); // undefined = checking, null = signed out
   const [profile, setProfile] = useState(null);
   const [folders, setFolders] = useState(seedFolders);
@@ -617,6 +617,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [dataLoaded, setDataLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [deepLinkHandled, setDeepLinkHandled] = useState(false);
 
   // check for an existing session (or one just returned from a Google redirect)
   useEffect(() => {
@@ -754,6 +755,18 @@ function App() {
     const interval = setInterval(loadAllData, 6000);
     return () => clearInterval(interval);
   }, [session, screen, loadAllData]);
+
+  // if someone opened a shared /v/:id link and they're actually signed in,
+  // take them straight into the full note-taking view for that video instead
+  // of the read-only public page — only does this once per page load
+  useEffect(() => {
+    if (!sharedVideoId || deepLinkHandled || !session || !dataLoaded) return;
+    if (videos[sharedVideoId]) {
+      setCurrentVideoId(sharedVideoId);
+      setScreen("video");
+    }
+    setDeepLinkHandled(true);
+  }, [sharedVideoId, deepLinkHandled, session, dataLoaded, videos]);
 
   /* ---- folder ops ---- */
   const createFolder = async (parentId, name) => {
@@ -951,7 +964,7 @@ function App() {
       {session === undefined ? (
         <LoadingScreen label="Checking your session…" />
       ) : session === null ? (
-        <AuthScreen />
+        sharedVideoId ? <PublicVideoView videoId={sharedVideoId} /> : <AuthScreen />
       ) : !dataLoaded ? (
         <LoadingScreen label="Loading your workspace…" />
       ) : loadError ? (
@@ -4189,7 +4202,7 @@ function Root() {
   return (
     <div className="app-root">
       <GlobalStyles />
-      {match ? <PublicVideoView videoId={match[1]} /> : <App />}
+      <App sharedVideoId={match ? match[1] : null} />
     </div>
   );
 }
